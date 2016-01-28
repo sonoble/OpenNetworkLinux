@@ -6,4 +6,6 @@ services:
   - docker
 
 script:
-- make docker
+- docker/tools/onlbuilder
+- source setup.env
+- make onl-x86
