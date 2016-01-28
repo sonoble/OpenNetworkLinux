@@ -13,6 +13,3 @@
 [submodule "packages/base/any/kernels/legacy/linux-3.8.13"]
 	path = packages/base/any/kernels/legacy/linux-3.8.13
 	url = git://github.com/opennetworklinux/linux-3.8.13
-[submodule "packages/platforms-closed"]
-	path = packages/platforms-closed
-	url = git@github.com:opennetworklinux/platforms-closed
