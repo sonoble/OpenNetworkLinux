@@ -1,0 +1,12 @@
+sudo: required
+
+language: c
+
+services:
+  - docker
+
+before_install:
+- docker pull opennetworklinux/onlbuilder7:1.0
+
+script:
+- make docker
