@@ -17,5 +17,5 @@ dependmodules.x
 .manifest.mk
 RELEASE/
 
-
-
+.bash_history
+.buildroot-ccache

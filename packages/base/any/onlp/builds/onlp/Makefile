@@ -22,13 +22,7 @@
 #
 #
 ############################################################
-include $(ONL)/make/config.mk
-
-ifndef TOOLCHAIN
-$(error $$TOOLCHAIN must be specified.)
-else
-export TOOLCHAIN
-endif
+include $(ONL)/make/any.mk
 
 MODULE := libonlp-module
 include $(BUILDER)/standardinit.mk
@@ -48,6 +42,9 @@ include $(BUILDER)/so.mk
 
 GLOBAL_CFLAGS += -DAIM_CONFIG_INCLUDE_CTOR_DTOR=1
 GLOBAL_CFLAGS += -DAIM_CONFIG_INCLUDE_MODULES_INIT=1
+GLOBAL_CFLAGS += -DONLP_CONFIG_API_LOCK_GLOBAL_SHARED=1
+GLOBAL_CFLAGS += -DONLP_CONFIG_INCLUDE_SHLOCK_GLOBAL_INIT=1
+
 GLOBAL_CFLAGS += -fPIC
 GLOBAL_LINK_LIBS += -lpthread $(LIBONLP_PLATFORM) $(LIBONLP_PLATFORM_DEFAULTS)
 
