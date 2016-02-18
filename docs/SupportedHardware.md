@@ -79,5 +79,6 @@ Notes:
 
 ONL Certified means that the system runs ONIE, is able to install a generic version of ONL and has the ONL Platform drivers necessary to manage the system.
 
-* Systems no longer in the lab cannot be certified post removal
-** No ONLP
+\* Systems no longer in the lab cannot be certified post removal
+
+\** No ONLP
