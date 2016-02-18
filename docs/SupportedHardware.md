@@ -9,7 +9,7 @@ Quanta
 <table class="table table-striped table-hover">
 <thead>
 <tr class="info"> 
-     <th> Device                  <th> Ports            <th> CPU                 <th> Forwarding             		<th> ONL Certified         <th> In Lab <th> Switch Driver </tr>
+     <th> Device                  <th> Ports            <th> CPU                 <th> Forwarding             		<th> ONL Certified         <th> In Lab <th> ORC <th> OF-DPA <th> OpenNSL <th> SAI </tr>
 </thead>
 <tr> <td> QuantaMesh T1048-LB9    <td> 48x1G  + 4x10G   <td> FreeScale P2020       <td> Broadcom BCM56534 (Firebolt3)    	<td> Yes  <td> Yes <td> BRCM SDK </tr>
 <tr> <td> QuantaMesh T3048-LY2    <td> 48x10G + 4x40G   <td> FreeScale P2020       <td> Broadcom BCM56846 (Trident+)     	<td> Yes   <td> Yes <td> BRCM SDK </tr>
