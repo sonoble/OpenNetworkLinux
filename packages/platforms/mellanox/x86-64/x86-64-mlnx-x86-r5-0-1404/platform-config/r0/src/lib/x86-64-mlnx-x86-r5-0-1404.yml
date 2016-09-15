@@ -25,7 +25,8 @@ x86-64-mlnx-x86-r5-0-1404:
       console=ttyS0,115200n8
       rd_NO_MD
       rd_NO_LUKS
-      intel_iommu=off
+      acpi_enforce_resources=lax
+      acpi=noirq
 
   ##network
   ##  interfaces:
