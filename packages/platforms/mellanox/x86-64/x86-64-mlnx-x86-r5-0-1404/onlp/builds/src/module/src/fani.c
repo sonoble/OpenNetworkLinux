@@ -2,7 +2,6 @@
  * <bsn.cl fy=2014 v=onl>
  *
  *           Copyright 2014 Big Switch Networks, Inc.
- *           Copyright 2014 Accton Technology Corporation.
  *
  * Licensed under the Eclipse Public License, Version 1.0 (the
  * "License"); you may not use this file except in compliance
@@ -28,16 +27,21 @@
 #include <fcntl.h>
 #include "platform_lib.h"
 
-#define PREFIX_PATH_ON_MAIN_BOARD   "/sys/bus/i2c/devices/TO_REPLACE/"
+/* MODIFY */
+#define PREFIX_PATH_ON_MAIN_BOARD   "/sys/bus/i2c/devices/2-0066/"
+/* MODIFY */
 #define PREFIX_PATH_ON_PSU          "/sys/bus/i2c/devices/"
 
+/* MODIFY */
 #define MAX_FAN_SPEED     18000
+/* MODIFY */
 #define MAX_PSU_FAN_SPEED 25500
 
 #define PROJECT_NAME
 #define LEN_FILE_NAME 80
 
-#define FAN_RESERVED        0
+/* MODIFY */
+#define FAN_RESERVED        0 
 #define FAN_1_ON_MAIN_BOARD 1
 #define FAN_2_ON_MAIN_BOARD	2
 #define FAN_3_ON_MAIN_BOARD	3
@@ -65,6 +69,7 @@ typedef struct fan_path_S
     {#folder"/psu_fan1_fault",  #folder"/psu_fan1_speed_rpm", \
      #folder"/psu_fan1_duty_cycle_percentage", ""  }
 
+/* MODIFY */
 static fan_path_T fan_path[] =  /* must map with onlp_fan_id */
 {
     MAKE_FAN_PATH_ON_MAIN_BOARD(PROJECT_NAME, FAN_RESERVED),
@@ -78,6 +83,7 @@ static fan_path_T fan_path[] =  /* must map with onlp_fan_id */
     MAKE_FAN_PATH_ON_PSU(10-0058)
 };
 
+/* MODIFY */
 #define MAKE_FAN_INFO_NODE_ON_MAIN_BOARD(id) \
     { \
         { ONLP_FAN_ID_CREATE(FAN_##id##_ON_MAIN_BOARD), "Chassis Fan "#id, 0 }, \
@@ -216,6 +222,7 @@ onlp_fani_init(void)
     return ONLP_STATUS_OK;
 }
 
+/* MODIFY */
 int
 onlp_fani_info_get(onlp_oid_t id, onlp_fan_info_t* info)
 {
@@ -289,6 +296,7 @@ onlp_fani_percentage_set(onlp_oid_t id, int p)
     }
 
     /* get fullpath */
+    /* MODIFY */
     switch (local_id)
 	{
         case FAN_1_ON_PSU1:

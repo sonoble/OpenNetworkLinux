@@ -2,7 +2,6 @@
  * <bsn.cl fy=2014 v=onl>
  *
  *           Copyright 2014 Big Switch Networks, Inc.
- *           Copyright 2014 Accton Technology Corporation.
  *
  * Licensed under the Eclipse Public License, Version 1.0 (the
  * "License"); you may not use this file except in compliance
@@ -115,7 +114,9 @@ int deviceNodeReadString(char *filename, char *buffer, int buf_size, int data_le
     return ret;
 }
 
+/* MODIFY */
 #define I2C_PSU_MODEL_NAME_LEN 9
+/* MODIFY */
 #define I2C_PSU_FAN_DIR_LEN    3
 #include <ctype.h>
 psu_type_t get_psu_type(int id, char* modelname, int modelname_len)
@@ -126,13 +127,14 @@ psu_type_t get_psu_type(int id, char* modelname, int modelname_len)
 
 
     /* Check AC model name */
+    /* MODIFY */
     node = (id == PSU1_ID) ? PSU1_AC_HWMON_NODE(psu_model_name) : PSU2_AC_HWMON_NODE(psu_model_name);
 
     if (deviceNodeReadString(node, model_name, sizeof(model_name), 0) != 0) {
         return PSU_TYPE_UNKNOWN;
     }
 
-
+    /* MODIFY */
     if (strncmp(model_name, "YM-2651Y", strlen("YM-2651Y")) != 0) {
         return PSU_TYPE_UNKNOWN;
     }

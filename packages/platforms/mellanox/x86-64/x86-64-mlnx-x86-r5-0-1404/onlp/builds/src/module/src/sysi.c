@@ -2,7 +2,6 @@
  * <bsn.cl fy=2014 v=onl>
  *
  *           Copyright 2014 Big Switch Networks, Inc.
- *           Copyright 2014 Accton Technology Corporation.
  *
  * Licensed under the Eclipse Public License, Version 1.0 (the
  * "License"); you may not use this file except in compliance
@@ -40,9 +39,11 @@
 
 #define NUM_OF_THERMAL_ON_MAIN_BROAD  CHASSIS_THERMAL_COUNT
 #define NUM_OF_FAN_ON_MAIN_BROAD      CHASSIS_FAN_COUNT
+/* MODIFY */
 #define NUM_OF_PSU_ON_MAIN_BROAD      2
 #define NUM_OF_LED_ON_MAIN_BROAD      5
 
+/* MODIFY */
 #define PREFIX_PATH_ON_CPLD_DEV          "/sys/bus/i2c/devices/"
 #define NUM_OF_CPLD                      3
 static char arr_cplddev_name[NUM_OF_CPLD][10] =
@@ -135,6 +136,7 @@ typedef struct fan_ctrl_policy {
    int temp_up_adjust;   /* The boundary temperature to up adjust fan speed */
 } fan_ctrl_policy_t;
 
+/* MODIFY */
 fan_ctrl_policy_t  fan_ctrl_policy_f2b[] = {
 {32,      0, 174000},
 {38, 170000, 182000},
@@ -142,6 +144,7 @@ fan_ctrl_policy_t  fan_ctrl_policy_f2b[] = {
 {63, 186000,      0}
 };
 
+/* MODIFY */
 fan_ctrl_policy_t  fan_ctrl_policy_b2f[] = {
 {32,     0,  140000},
 {38, 135000, 150000},
@@ -149,9 +152,11 @@ fan_ctrl_policy_t  fan_ctrl_policy_b2f[] = {
 {69, 155000,      0}
 };
 
+/* MODIFY */
 #define FAN_DUTY_CYCLE_MAX  100
 #define FAN_SPEED_CTRL_PATH "/sys/bus/i2c/devices/2-0066/fan_duty_cycle_percentage"
 
+/* MODIFY */
 /*
  * For AC power Front to Back :
  *	* If any fan fail, please fan speed register to 15

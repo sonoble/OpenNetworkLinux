@@ -2,7 +2,6 @@
  * <bsn.cl fy=2014 v=onl>
  *
  *           Copyright 2014 Big Switch Networks, Inc.
- *           Copyright 2014 Accton Technology Corporation.
  *
  * Licensed under the Eclipse Public License, Version 1.0 (the
  * "License"); you may not use this file except in compliance
@@ -35,7 +34,7 @@
 
 #define MAX_SFP_PATH 64
 static char sfp_node_path[MAX_SFP_PATH] = {0};
-
+/* MODIFY */
 #define MUX_START_INDEX 18
 #define NUM_OF_SFP_PORT 32
 static const int sfp_mux_index[NUM_OF_SFP_PORT] = {
@@ -47,8 +46,9 @@ static const int sfp_mux_index[NUM_OF_SFP_PORT] = {
 
 #define FRONT_PORT_TO_MUX_INDEX(port) (sfp_mux_index[port]+MUX_START_INDEX)
 
+/* MODIFY */
 static int
-as7512_32x_sfp_node_read_int(char *node_path, int *value, int data_len)
+sn2700_sfp_node_read_int(char *node_path, int *value, int data_len)
 {
     int ret = 0;
     char buf[8];
@@ -63,8 +63,9 @@ as7512_32x_sfp_node_read_int(char *node_path, int *value, int data_len)
     return ret;
 }
 
+/* MODIFY */
 static char*
-as7512_32x_sfp_get_port_path(int port, char *node_name)
+sn2700_sfp_get_port_path(int port, char *node_name)
 {
     sprintf(sfp_node_path, "/sys/bus/i2c/devices/%d-0050/%s",
                            FRONT_PORT_TO_MUX_INDEX(port),
@@ -85,6 +86,7 @@ onlp_sfpi_init(void)
     return ONLP_STATUS_OK;
 }
 
+/* MODIFY */
 int
 onlp_sfpi_bitmap_get(onlp_sfp_bitmap_t* bmap)
 {
@@ -101,6 +103,7 @@ onlp_sfpi_bitmap_get(onlp_sfp_bitmap_t* bmap)
     return ONLP_STATUS_OK;
 }
 
+/* MODIFY */
 int
 onlp_sfpi_is_present(int port)
 {
@@ -110,9 +113,9 @@ onlp_sfpi_is_present(int port)
      * Return < 0 if error.
      */
     int present;
-    char* path = as7512_32x_sfp_get_port_path(port, "sfp_is_present");
+    char* path = sn2700_sfp_get_port_path(port, "sfp_is_present");
 
-    if (as7512_32x_sfp_node_read_int(path, &present, 0) != 0) {
+    if (sn2700_sfp_node_read_int(path, &present, 0) != 0) {
         AIM_LOG_ERROR("Unable to read present status from port(%d)\r\n", port);
         return ONLP_STATUS_E_INTERNAL;
     }
@@ -120,6 +123,7 @@ onlp_sfpi_is_present(int port)
     return present;
 }
 
+/* MODIFY */
 int
 onlp_sfpi_presence_bitmap_get(onlp_sfp_bitmap_t* dst)
 {
@@ -127,7 +131,7 @@ onlp_sfpi_presence_bitmap_get(onlp_sfp_bitmap_t* dst)
     char* path;
     FILE* fp;
 
-    path = as7512_32x_sfp_get_port_path(0, "sfp_is_present_all");
+    path = sn2700_sfp_get_port_path(0, "sfp_is_present_all");
     fp = fopen(path, "r");
 
     if(fp == NULL) {
@@ -164,10 +168,11 @@ onlp_sfpi_presence_bitmap_get(onlp_sfp_bitmap_t* dst)
     return ONLP_STATUS_OK;
 }
 
+/* MODIFY */
 int
 onlp_sfpi_eeprom_read(int port, uint8_t data[256])
 {
-    char* path = as7512_32x_sfp_get_port_path(port, "sfp_eeprom");
+    char* path = sn2700_sfp_get_port_path(port, "sfp_eeprom");
 
     /*
      * Read the SFP eeprom into data[]

@@ -2,7 +2,6 @@
  * <bsn.cl fy=2014 v=onl>
  *
  *           Copyright 2014 Big Switch Networks, Inc.
- *           Copyright 2014 Accton Technology Corporation.
  *
  * Licensed under the Eclipse Public License, Version 1.0 (the
  * "License"); you may not use this file except in compliance
@@ -30,6 +29,7 @@
 #include <fcntl.h>
 #include "platform_lib.h"
 
+/* MODIFY */
 #define prefix_path "/sys/bus/i2c/devices/"
 
 #define VALIDATE(_id)                           \
@@ -50,6 +50,7 @@
     if (close(fd) == -1)                        \
         return ONLP_STATUS_E_INTERNAL
 
+/* MODIFY */
 enum onlp_thermal_id
 {
     THERMAL_RESERVED = 0,
@@ -61,6 +62,7 @@ enum onlp_thermal_id
     THERMAL_1_ON_PSU2,
 };
 
+/* MODIFY */
 static char* last_path[] =  /* must map with onlp_thermal_id */
 {
     "reserved",
@@ -73,6 +75,7 @@ static char* last_path[] =  /* must map with onlp_thermal_id */
     "10-0058/psu_temp1_input",
 };
 
+/* MODIFY */
 static char* cpu_coretemp_files[] =
     {
         "/sys/devices/platform/coretemp.0/temp2_input",
@@ -82,6 +85,7 @@ static char* cpu_coretemp_files[] =
         NULL,
     };
 
+/* MODIFY */
 /* Static values */
 static onlp_thermal_info_t linfo[] = {
 	{ }, /* Not used */

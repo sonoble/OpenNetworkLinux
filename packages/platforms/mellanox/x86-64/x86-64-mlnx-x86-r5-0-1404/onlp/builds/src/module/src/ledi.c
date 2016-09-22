@@ -2,7 +2,6 @@
  * <bsn.cl fy=2014 v=onl>
  *
  *           Copyright 2014 Big Switch Networks, Inc.
- *           Copyright 2014 Accton Technology Corporation.
  *
  * Licensed under the Eclipse Public License, Version 1.0 (the
  * "License"); you may not use this file except in compliance
@@ -32,7 +31,8 @@
 
 #include "platform_lib.h"
 
-#define prefix_path "/sys/class/leds/TO_REPLACE::"
+/* MODIFY */
+#define prefix_path "/sys/class/leds/mlnx_led::"
 #define filename    "brightness"
 
 #define VALIDATE(_id)                           \

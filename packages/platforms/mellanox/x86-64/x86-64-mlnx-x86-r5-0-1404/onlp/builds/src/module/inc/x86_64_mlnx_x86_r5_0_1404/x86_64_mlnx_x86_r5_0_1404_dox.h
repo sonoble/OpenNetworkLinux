@@ -10,7 +10,7 @@
  * @defgroup x86_64_mlnx_x86_r5_0_1404 x86_64_mlnx_x86_r5_0_1404 - x86_64_mlnx_x86_r5_0_1404 Description
  *
 
-The documentation overview for this module should go here.
+ONLP for the Mellanox SN2700
 
  *
  * @{

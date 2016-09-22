@@ -2,7 +2,6 @@
  * <bsn.cl fy=2014 v=onl>
  *
  *           Copyright 2014 Big Switch Networks, Inc.
- *           Copyright 2014 Accton Technology Corporation.
  *
  * Licensed under the Eclipse Public License, Version 1.0 (the
  * "License"); you may not use this file except in compliance
@@ -32,6 +31,7 @@
 #define PSU_STATUS_PRESENT    1
 #define PSU_STATUS_POWER_GOOD 1
 
+/* MODIFY */
 #define PSU_NODE_MAX_INT_LEN  8
 #define PSU_NODE_MAX_PATH_LEN 64
 
@@ -67,6 +67,8 @@ psu_status_info_get(int id, char *node, int *value)
     return ret;
 }
 
+/* MODIFY */
+
 static int
 psu_ym2651y_pmbus_info_get(int id, char *node, int *value)
 {
@@ -98,6 +100,7 @@ onlp_psui_init(void)
     return ONLP_STATUS_OK;
 }
 
+/* MODIFY */
 static int
 psu_ym2651y_info_get(onlp_psu_info_t* info)
 {
@@ -187,7 +190,7 @@ onlp_psui_info_get(onlp_oid_t id, onlp_psu_info_t* info)
     /* Get PSU type
      */
     psu_type = get_psu_type(index, info->model, sizeof(info->model));
-
+    /* MODIFY */
     switch (psu_type) {
         case PSU_TYPE_AC_F2B:
         case PSU_TYPE_AC_B2F:
