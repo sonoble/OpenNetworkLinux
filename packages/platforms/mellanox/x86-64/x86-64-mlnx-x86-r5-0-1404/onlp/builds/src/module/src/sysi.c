@@ -56,7 +56,7 @@ static char arr_cplddev_name[NUM_OF_CPLD][10] =
 const char*
 onlp_sysi_platform_get(void)
 {
-    return "x86-64-mlnx-x86-r5-0-1404-r0";
+    return "x86-64-mlnx-x86-r5-0-1404";
 }
 
 int
