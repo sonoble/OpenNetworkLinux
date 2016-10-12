@@ -39,18 +39,17 @@
 
 #define NUM_OF_THERMAL_ON_MAIN_BROAD  CHASSIS_THERMAL_COUNT
 #define NUM_OF_FAN_ON_MAIN_BROAD      CHASSIS_FAN_COUNT
-/* MODIFY */
 #define NUM_OF_PSU_ON_MAIN_BROAD      2
-#define NUM_OF_LED_ON_MAIN_BROAD      5
+#define NUM_OF_LED_ON_MAIN_BROAD      6
 
 /* MODIFY */
-#define PREFIX_PATH_ON_CPLD_DEV          "/sys/bus/i2c/devices/"
+#define PREFIX_PATH_ON_CPLD_DEV          "/bsp/cpld"
 #define NUM_OF_CPLD                      3
-static char arr_cplddev_name[NUM_OF_CPLD][10] =
+static char arr_cplddev_name[NUM_OF_CPLD][30] =
 {
- "4-0060",
- "5-0062",
- "6-0064"
+    "cpld_brd_version",
+    "cpld_mgmt_version",
+    "cpld_port_version"
 };
 
 const char*
@@ -79,14 +78,16 @@ int
 onlp_sysi_platform_info_get(onlp_platform_info_t* pi)
 {
     int   i, v[NUM_OF_CPLD]={0};
+
     for (i=0; i < NUM_OF_CPLD; i++) {
         v[i] = 0;
-        if(onlp_file_read_int(v+i, "%s%s/version", PREFIX_PATH_ON_CPLD_DEV, arr_cplddev_name[i]) < 0) {
+        if(onlp_file_read_int(v+i, "%s/%s", PREFIX_PATH_ON_CPLD_DEV, arr_cplddev_name[i]) < 0) {
             return ONLP_STATUS_E_INTERNAL;
         }
     }
     pi->cpld_versions = aim_fstrdup("%d.%d.%d", v[0], v[1], v[2]);
-    return 0;
+
+    return ONLP_STATUS_OK;
 }
 
 void
@@ -103,13 +104,13 @@ onlp_sysi_oids_get(onlp_oid_t* table, int max)
     onlp_oid_t* e = table;
     memset(table, 0, max*sizeof(onlp_oid_t));
 
-    /* 4 Thermal sensors on the chassis */
+    /* 8 Thermal sensors on the chassis */
     for (i = 1; i <= NUM_OF_THERMAL_ON_MAIN_BROAD; i++)
     {
         *e++ = ONLP_THERMAL_ID_CREATE(i);
     }
 
-    /* 5 LEDs on the chassis */
+    /* 6 LEDs on the chassis */
     for (i = 1; i <= NUM_OF_LED_ON_MAIN_BROAD; i++)
     {
         *e++ = ONLP_LED_ID_CREATE(i);
@@ -121,7 +122,7 @@ onlp_sysi_oids_get(onlp_oid_t* table, int max)
         *e++ = ONLP_PSU_ID_CREATE(i);
     }
 
-    /* 4 Fans on the chassis */
+    /* 8 Fans and 2 PSU fans on the chassis */
     for (i = 1; i <= NUM_OF_FAN_ON_MAIN_BROAD; i++)
     {
         *e++ = ONLP_FAN_ID_CREATE(i);
@@ -130,164 +131,98 @@ onlp_sysi_oids_get(onlp_oid_t* table, int max)
     return 0;
 }
 
-typedef struct fan_ctrl_policy {
-   int duty_cycle;
-   int temp_down_adjust; /* The boundary temperature to down adjust fan speed */
-   int temp_up_adjust;   /* The boundary temperature to up adjust fan speed */
-} fan_ctrl_policy_t;
-
-/* MODIFY */
-fan_ctrl_policy_t  fan_ctrl_policy_f2b[] = {
-{32,      0, 174000},
-{38, 170000, 182000},
-{50, 178000, 190000},
-{63, 186000,      0}
-};
-
-/* MODIFY */
-fan_ctrl_policy_t  fan_ctrl_policy_b2f[] = {
-{32,     0,  140000},
-{38, 135000, 150000},
-{50, 145000, 160000},
-{69, 155000,      0}
-};
-
-/* MODIFY */
-#define FAN_DUTY_CYCLE_MAX  100
-#define FAN_SPEED_CTRL_PATH "/sys/bus/i2c/devices/2-0066/fan_duty_cycle_percentage"
-
-/* MODIFY */
-/*
- * For AC power Front to Back :
- *	* If any fan fail, please fan speed register to 15
- *	* The max value of Fan speed register is 9
- *		[LM75(48) + LM75(49) + LM75(4A)] > 174  => set Fan speed value from 4 to 5
- *		[LM75(48) + LM75(49) + LM75(4A)] > 182  => set Fan speed value from 5 to 7
- *		[LM75(48) + LM75(49) + LM75(4A)] > 190  => set Fan speed value from 7 to 9
- *
- *		[LM75(48) + LM75(49) + LM75(4A)] < 170  => set Fan speed value from 5 to 4
- *		[LM75(48) + LM75(49) + LM75(4A)] < 178  => set Fan speed value from 7 to 5
- *		[LM75(48) + LM75(49) + LM75(4A)] < 186  => set Fan speed value from 9 to 7
- *
- *
- * For  AC power Back to Front :
- *	* If any fan fail, please fan speed register to 15
- *	* The max value of Fan speed register is 10
- *		[LM75(48) + LM75(49) + LM75(4A)] > 140  => set Fan speed value from 4 to 5
- *		[LM75(48) + LM75(49) + LM75(4A)] > 150  => set Fan speed value from 5 to 7
- *		[LM75(48) + LM75(49) + LM75(4A)] > 160  => set Fan speed value from 7 to 10
- *
- *		[LM75(48) + LM75(49) + LM75(4A)] < 135  => set Fan speed value from 5 to 4
- *		[LM75(48) + LM75(49) + LM75(4A)] < 145  => set Fan speed value from 7 to 5
- *		[LM75(48) + LM75(49) + LM75(4A)] < 155  => set Fan speed value from 10 to 7
- */
-int
-onlp_sysi_platform_manage_fans(void)
+static int
+_onlp_sysi_grep_output(char value[256], const char *attr, const char *tmp_file)
 {
-    int i = 0, arr_size, temp;
-    fan_ctrl_policy_t *policy;
-    int cur_duty_cycle, new_duty_cycle;
-    onlp_thermal_info_t thermal_1, thermal_2, thermal_3;
+    int value_offset = 30;
+    char buffer[256]  = {0};
+    char command[256] = {0};
+    int v = 0;
+    FILE *fp = NULL;
 
-    int  fd, len;
-    char  buf[10] = {0};
-
-    /* Get each fan status
-     */
-    for (i = 1; i <= NUM_OF_FAN_ON_MAIN_BROAD; i++)
-    {
-        onlp_fan_info_t fan_info;
-
-        if (onlp_fani_info_get(ONLP_FAN_ID_CREATE(i), &fan_info) != ONLP_STATUS_OK) {
-            AIM_LOG_ERROR("Unable to get fan(%d) status\r\n", i);
-            return ONLP_STATUS_E_INTERNAL;
-        }
-
-        /* Decision 1: Set fan as full speed if any fan is failed.
-         */
-        if (fan_info.status & ONLP_FAN_STATUS_FAILED) {
-            AIM_LOG_ERROR("Fan(%d) is not working, set the other fans as full speed\r\n", i);
-            return onlp_fani_percentage_set(ONLP_FAN_ID_CREATE(1), FAN_DUTY_CYCLE_MAX);
-        }
-
-        /* Get fan direction (Only get the first one since all fan direction are the same)
-         */
-        if (i == 1) {
-            if (fan_info.status & ONLP_FAN_STATUS_F2B) {
-                policy   = fan_ctrl_policy_f2b;
-                arr_size = AIM_ARRAYSIZE(fan_ctrl_policy_f2b);
-            }
-            else {
-                policy   = fan_ctrl_policy_b2f;
-                arr_size = AIM_ARRAYSIZE(fan_ctrl_policy_b2f);
-            }
-        }
-    }
-
-    /* Get current fan speed
-     */
-    fd = open(FAN_SPEED_CTRL_PATH, O_RDONLY);
-    if (fd == -1){
-        AIM_LOG_ERROR("Unable to open fan speed control node (%s)", FAN_SPEED_CTRL_PATH);
+    /* Open the command for reading. */
+    snprintf(command, sizeof(command), "cat '%s' | grep '%s'", tmp_file, attr);
+    fp = popen(command, "r");
+    if (NULL == fp) {
+        DEBUG_PRINT("[Debug][%s][%d]Failed to run command '%s'\n",
+                    __FUNCTION__, __LINE__, command);
         return ONLP_STATUS_E_INTERNAL;
     }
 
-    len = read(fd, buf, sizeof(buf));
-    close(fd);
-    if (len <= 0) {
-        AIM_LOG_ERROR("Unable to read fan speed from (%s)", FAN_SPEED_CTRL_PATH);
+    /* Read the output */
+    if (fgets(buffer, sizeof(buffer)-1, fp) == NULL) {
+        DEBUG_PRINT("[Debug][%s][%d]Failed to read output of command '%s'\n",
+                    __FUNCTION__, __LINE__, command);
+        pclose(fp);
         return ONLP_STATUS_E_INTERNAL;
     }
-    cur_duty_cycle = atoi(buf);
+    /* close */
+    pclose(fp);
 
-
-    /* Decision 2: If no matched fan speed is found from the policy,
-     *             use FAN_DUTY_CYCLE_MIN as default speed
-     */
-	for (i = 0; i < arr_size; i++) {
-	    if (policy[i].duty_cycle != cur_duty_cycle)
-		    continue;
-
-		break;
-	}
-
-	if (i == arr_size) {
-        return onlp_fani_percentage_set(ONLP_FAN_ID_CREATE(1), policy[0].duty_cycle);
-	}
-
-    /* Get current temperature
-     */
-    if (onlp_thermali_info_get(ONLP_THERMAL_ID_CREATE(1), &thermal_1) != ONLP_STATUS_OK ||
-        onlp_thermali_info_get(ONLP_THERMAL_ID_CREATE(2), &thermal_2) != ONLP_STATUS_OK ||
-        onlp_thermali_info_get(ONLP_THERMAL_ID_CREATE(3), &thermal_3) != ONLP_STATUS_OK) {
-        AIM_LOG_ERROR("Unable to read thermal status");
-        return ONLP_STATUS_E_INTERNAL;
+    /* Reading value from buffer with command output */
+    while (buffer[value_offset] != '\n' &&
+           buffer[value_offset] != '\r' &&
+           buffer[value_offset] != '\0') {
+        value[v] = buffer[value_offset];
+        v++;
+        value_offset++;
     }
-    temp = thermal_1.mcelsius + thermal_2.mcelsius + thermal_3.mcelsius;
+    value[v] = '\0';
 
+    DEBUG_PRINT("[Debug][%s][%d]Value for sytem attribute '%s' is '%s' \n",
+                __FUNCTION__, __LINE__, attr, value);
 
-    /* Decision 3: Decide new fan speed depend on fan direction/current fan speed/temperature
-     */
-    new_duty_cycle = cur_duty_cycle;
-
-    if ((temp >= policy[i].temp_up_adjust) && (i != (arr_size-1))) {
-	    new_duty_cycle = policy[i+1].duty_cycle;
-	}
-	else if ((temp <= policy[i].temp_down_adjust) && (i != 0)) {
-	    new_duty_cycle = policy[i-1].duty_cycle;
-	}
-
-	if (new_duty_cycle == cur_duty_cycle) {
-        /* Duty cycle does not change, just return */
-	    return ONLP_STATUS_OK;
-	}
-
-    return onlp_fani_percentage_set(ONLP_FAN_ID_CREATE(1), new_duty_cycle);
+    return ONLP_STATUS_OK;
 }
 
 int
-onlp_sysi_platform_manage_leds(void)
+onlp_sysi_onie_info_get(onlp_onie_info_t* onie)
 {
-    return ONLP_STATUS_E_UNSUPPORTED;
+    const char tmp_file[] = "/tmp/onie-shell.log";
+    const char onie_command[] = "onie-shell -c onie-syseeprom > /tmp/onie-shell.log";
+    char value[256] = {0};
+    int rc = 0;
+
+    /* We must initialize this otherwise crash occurs while free memory */
+    list_init(&onie->vx_list);
+
+    system(onie_command);
+    rc = _onlp_sysi_grep_output(value, "Product Name", tmp_file);
+    if (ONLP_STATUS_OK != rc) {
+        return rc;
+    }
+    onie->product_name = aim_strdup(value);
+    rc = _onlp_sysi_grep_output(value, "Part Number", tmp_file);
+    if (ONLP_STATUS_OK != rc) {
+        return rc;
+    }
+    onie->part_number = aim_strdup(value);
+    rc = _onlp_sysi_grep_output(value, "Serial Number", tmp_file);
+    if (ONLP_STATUS_OK != rc) {
+        return rc;
+    }
+    onie->serial_number = aim_strdup(value);
+    rc = _onlp_sysi_grep_output(value, "Base MAC Address", tmp_file);
+    if (ONLP_STATUS_OK != rc) {
+        return rc;
+    }
+    strncpy((char*)onie->mac, value, sizeof(onie->mac));
+    rc = _onlp_sysi_grep_output(value, "Manufacture Date", tmp_file);
+    if (ONLP_STATUS_OK != rc) {
+        return rc;
+    }
+    onie->manufacture_date = aim_strdup(value);
+    rc = _onlp_sysi_grep_output(value, "Device Version", tmp_file);
+    if (ONLP_STATUS_OK != rc) {
+        return rc;
+    }
+    onie->device_version = atoi(value);
+    rc = _onlp_sysi_grep_output(value, "Manufacturer", tmp_file);
+    if (ONLP_STATUS_OK != rc) {
+        return rc;
+    }
+    onie->manufacturer = aim_strdup(value);
+
+    return ONLP_STATUS_OK;
 }
 

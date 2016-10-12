@@ -29,8 +29,37 @@
 #include <fcntl.h>
 #include "platform_lib.h"
 
-/* MODIFY */
-#define prefix_path "/sys/bus/i2c/devices/"
+#define prefix_path "/bsp/thermal"
+
+/** CPU thermal_threshold */
+typedef enum cpu_thermal_threshold_e {
+    CPU_THERMAL_THRESHOLD_WARNING_DEFAULT  = 87000,
+    CPU_THERMAL_THRESHOLD_ERROR_DEFAULT    = 100000,
+    CPU_THERMAL_THRESHOLD_SHUTDOWN_DEFAULT = 105000,
+} cpu_thermal_threshold_t;
+
+/**
+ * Shortcut for CPU thermal threshold value.
+ */
+#define CPU_THERMAL_THRESHOLD_INIT_DEFAULTS  \
+    { CPU_THERMAL_THRESHOLD_WARNING_DEFAULT, \
+      CPU_THERMAL_THRESHOLD_ERROR_DEFAULT,   \
+      CPU_THERMAL_THRESHOLD_SHUTDOWN_DEFAULT }
+
+/** Asic thermal_threshold */
+typedef enum asic_thermal_threshold_e {
+    ASIC_THERMAL_THRESHOLD_WARNING_DEFAULT  = 105000,
+    ASIC_THERMAL_THRESHOLD_ERROR_DEFAULT    = 115000,
+    ASIC_THERMAL_THRESHOLD_SHUTDOWN_DEFAULT = 120000,
+} asic_thermal_threshold_t;
+
+/**
+ * Shortcut for CPU thermal threshold value.
+ */
+#define ASIC_THERMAL_THRESHOLD_INIT_DEFAULTS  \
+    { ASIC_THERMAL_THRESHOLD_WARNING_DEFAULT, \
+      ASIC_THERMAL_THRESHOLD_ERROR_DEFAULT,   \
+      ASIC_THERMAL_THRESHOLD_SHUTDOWN_DEFAULT }
 
 #define VALIDATE(_id)                           \
     do {                                        \
@@ -50,72 +79,66 @@
     if (close(fd) == -1)                        \
         return ONLP_STATUS_E_INTERNAL
 
-/* MODIFY */
 enum onlp_thermal_id
 {
     THERMAL_RESERVED = 0,
-    THERMAL_CPU_CORE,
-    THERMAL_1_ON_MAIN_BROAD,
-    THERMAL_2_ON_MAIN_BROAD,
-    THERMAL_3_ON_MAIN_BROAD,
-    THERMAL_1_ON_PSU1,
-    THERMAL_1_ON_PSU2,
+    THERMAL_CPU_CORE_0,
+    THERMAL_CPU_CORE_1,
+    THERMAL_CPU_PACK,
+    THERMAL_ASIC,
+    THERMAL_BOAR_AMB,
+    THERMAL_PORT,
+    THERMAL_ON_PSU1,
+    THERMAL_ON_PSU2,
 };
 
-/* MODIFY */
 static char* last_path[] =  /* must map with onlp_thermal_id */
 {
     "reserved",
-    NULL,                  /* CPU_CORE files */
-    "3-0048/temp1_input",
-    "3-0049/temp1_input",
-    "3-004a/temp1_input",
-    "3-004b/temp1_input",
-    "11-005b/psu_temp1_input",
-    "10-0058/psu_temp1_input",
+    "cpu_core0",
+    "cpu_core1",
+    "cpu_pack",
+    "asic",
+    "board_amb",
+    "port_amb",
+    "psu1",
+    "psu2"
 };
 
-/* MODIFY */
-static char* cpu_coretemp_files[] =
-    {
-        "/sys/devices/platform/coretemp.0/temp2_input",
-        "/sys/devices/platform/coretemp.0/temp3_input",
-        "/sys/devices/platform/coretemp.0/temp4_input",
-        "/sys/devices/platform/coretemp.0/temp5_input",
-        NULL,
-    };
-
-/* MODIFY */
 /* Static values */
 static onlp_thermal_info_t linfo[] = {
-	{ }, /* Not used */
-	{ { ONLP_THERMAL_ID_CREATE(THERMAL_CPU_CORE), "CPU Core", 0},
+    { }, /* Not used */
+	{ { ONLP_THERMAL_ID_CREATE(THERMAL_CPU_CORE_0), "CPU Core 0", 0},
             ONLP_THERMAL_STATUS_PRESENT,
-            ONLP_THERMAL_CAPS_ALL, 0, ONLP_THERMAL_THRESHOLD_INIT_DEFAULTS
+            ONLP_THERMAL_CAPS_ALL, 0, CPU_THERMAL_THRESHOLD_INIT_DEFAULTS
         },
-	{ { ONLP_THERMAL_ID_CREATE(THERMAL_1_ON_MAIN_BROAD), "Chassis Thermal Sensor 1", 0},
+	{ { ONLP_THERMAL_ID_CREATE(THERMAL_CPU_CORE_1), "CPU Core 1", 0},
             ONLP_THERMAL_STATUS_PRESENT,
-            ONLP_THERMAL_CAPS_ALL, 0, ONLP_THERMAL_THRESHOLD_INIT_DEFAULTS
+            ONLP_THERMAL_CAPS_ALL, 0, CPU_THERMAL_THRESHOLD_INIT_DEFAULTS
         },
-	{ { ONLP_THERMAL_ID_CREATE(THERMAL_2_ON_MAIN_BROAD), "Chassis Thermal Sensor 2", 0},
+	{ { ONLP_THERMAL_ID_CREATE(THERMAL_CPU_PACK), "CPU Pack", 0},
             ONLP_THERMAL_STATUS_PRESENT,
-            ONLP_THERMAL_CAPS_ALL, 0, ONLP_THERMAL_THRESHOLD_INIT_DEFAULTS
+            ONLP_THERMAL_CAPS_ALL, 0, CPU_THERMAL_THRESHOLD_INIT_DEFAULTS
         },
-	{ { ONLP_THERMAL_ID_CREATE(THERMAL_3_ON_MAIN_BROAD), "Chassis Thermal Sensor 3", 0},
+	{ { ONLP_THERMAL_ID_CREATE(THERMAL_ASIC), "Asic Thermal Sensor", 0},
             ONLP_THERMAL_STATUS_PRESENT,
-            ONLP_THERMAL_CAPS_ALL, 0, ONLP_THERMAL_THRESHOLD_INIT_DEFAULTS
+            ONLP_THERMAL_CAPS_ALL, 0, ASIC_THERMAL_THRESHOLD_INIT_DEFAULTS
         },
-	{ { ONLP_THERMAL_ID_CREATE(THERMAL_3_ON_MAIN_BROAD), "Chassis Thermal Sensor 4", 0},
+	{ { ONLP_THERMAL_ID_CREATE(THERMAL_BOAR_AMB), "Board AMB Thermal Sensor", 0},
             ONLP_THERMAL_STATUS_PRESENT,
-            ONLP_THERMAL_CAPS_ALL, 0, ONLP_THERMAL_THRESHOLD_INIT_DEFAULTS
+            ONLP_THERMAL_CAPS_GET_TEMPERATURE, 0, {0,0,0}
         },
-	{ { ONLP_THERMAL_ID_CREATE(THERMAL_1_ON_PSU1), "PSU-1 Thermal Sensor 1", ONLP_PSU_ID_CREATE(PSU1_ID)},
+	{ { ONLP_THERMAL_ID_CREATE(THERMAL_PORT), "Port AMB Thermal Sensor", 0},
             ONLP_THERMAL_STATUS_PRESENT,
-            ONLP_THERMAL_CAPS_ALL, 0, ONLP_THERMAL_THRESHOLD_INIT_DEFAULTS
+            ONLP_THERMAL_CAPS_GET_TEMPERATURE, 0, {0,0,0}
         },
-	{ { ONLP_THERMAL_ID_CREATE(THERMAL_1_ON_PSU2), "PSU-2 Thermal Sensor 1", ONLP_PSU_ID_CREATE(PSU2_ID)},
+	{ { ONLP_THERMAL_ID_CREATE(THERMAL_ON_PSU1), "PSU-1 Thermal Sensor 1", ONLP_PSU_ID_CREATE(PSU1_ID)},
             ONLP_THERMAL_STATUS_PRESENT,
-            ONLP_THERMAL_CAPS_ALL, 0, ONLP_THERMAL_THRESHOLD_INIT_DEFAULTS
+            ONLP_THERMAL_CAPS_GET_TEMPERATURE, 0, {0,0,0}
+        },
+	{ { ONLP_THERMAL_ID_CREATE(THERMAL_ON_PSU2), "PSU-2 Thermal Sensor 1", ONLP_PSU_ID_CREATE(PSU2_ID)},
+            ONLP_THERMAL_STATUS_PRESENT,
+            ONLP_THERMAL_CAPS_GET_TEMPERATURE, 0, {0,0,0}
         }
 };
 
@@ -141,7 +164,7 @@ onlp_thermali_init(void)
 int
 onlp_thermali_info_get(onlp_oid_t id, onlp_thermal_info_t* info)
 {
-    int   fd, len, nbytes = 10, temp_base=1, local_id;
+    int   fd = 0, len = 0, nbytes = 10, temp_base=1, local_id = 0;
     char  r_data[10]   = {0};
     char  fullpath[50] = {0};
     VALIDATE(id);
@@ -151,13 +174,8 @@ onlp_thermali_info_get(onlp_oid_t id, onlp_thermal_info_t* info)
     /* Set the onlp_oid_hdr_t and capabilities */
     *info = linfo[local_id];
 
-    if(local_id == THERMAL_CPU_CORE) {
-        int rv = onlp_file_read_int_max(&info->mcelsius, cpu_coretemp_files);
-        return rv;
-    }
-
     /* get fullpath */
-    sprintf(fullpath, "%s%s", prefix_path, last_path[local_id]);
+    snprintf(fullpath, sizeof(fullpath), "%s/%s", prefix_path, last_path[local_id]);
 
     OPEN_READ_FILE(fd, fullpath, r_data, nbytes, len);
     info->mcelsius = atoi(r_data) / temp_base;

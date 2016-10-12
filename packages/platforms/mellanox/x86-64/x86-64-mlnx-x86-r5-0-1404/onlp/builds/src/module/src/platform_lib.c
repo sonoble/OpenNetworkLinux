@@ -108,58 +108,8 @@ int deviceNodeReadString(char *filename, char *buffer, int buf_size, int data_le
 	ret = deviceNodeReadBinary(filename, buffer, buf_size-1, data_len);
 
     if (ret == 0) {
-        buffer[buf_size-1] = '\0';
+        buffer[strnlen(buffer, buf_size)-1] = '\0';
     }
 
     return ret;
-}
-
-/* MODIFY */
-#define I2C_PSU_MODEL_NAME_LEN 9
-/* MODIFY */
-#define I2C_PSU_FAN_DIR_LEN    3
-#include <ctype.h>
-psu_type_t get_psu_type(int id, char* modelname, int modelname_len)
-{
-    char *node = NULL;
-    char  model_name[I2C_PSU_MODEL_NAME_LEN + 1] = {0};
-    char  fan_dir[I2C_PSU_FAN_DIR_LEN + 1] = {0};
-
-
-    /* Check AC model name */
-    /* MODIFY */
-    node = (id == PSU1_ID) ? PSU1_AC_HWMON_NODE(psu_model_name) : PSU2_AC_HWMON_NODE(psu_model_name);
-
-    if (deviceNodeReadString(node, model_name, sizeof(model_name), 0) != 0) {
-        return PSU_TYPE_UNKNOWN;
-    }
-
-    /* MODIFY */
-    if (strncmp(model_name, "YM-2651Y", strlen("YM-2651Y")) != 0) {
-        return PSU_TYPE_UNKNOWN;
-    }
-
-    if(isspace(model_name[strlen(model_name)-1])) {
-        model_name[strlen(model_name)-1] = 0;
-    }
-
-    if (modelname) {
-        strncpy(modelname, model_name, modelname_len-1);
-    }
-
-    node = (id == PSU1_ID) ? PSU1_AC_PMBUS_NODE(psu_fan_dir) : PSU2_AC_PMBUS_NODE(psu_fan_dir);
-
-    if (deviceNodeReadString(node, fan_dir, sizeof(fan_dir), 0) != 0) {
-        return PSU_TYPE_UNKNOWN;
-    }
-
-    if (strncmp(fan_dir, "F2B", strlen("F2B")) == 0) {
-        return PSU_TYPE_AC_F2B;
-    }
-
-    if (strncmp(fan_dir, "B2F", strlen("B2F")) == 0) {
-        return PSU_TYPE_AC_B2F;
-    }
-
-    return PSU_TYPE_UNKNOWN;
 }

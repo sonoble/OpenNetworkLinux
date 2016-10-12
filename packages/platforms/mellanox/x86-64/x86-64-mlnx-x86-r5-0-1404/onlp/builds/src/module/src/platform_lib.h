@@ -27,31 +27,22 @@
 
 #include "x86_64_mlnx_x86_r5_0_1404_log.h"
 
-/* MODIFY */
-#define CHASSIS_FAN_COUNT     6
-#define CHASSIS_THERMAL_COUNT 5
+#define CHASSIS_PSU_COUNT     2
+#define CHASSIS_FAN_COUNT     (10 - CHASSIS_PSU_COUNT)
+#define CHASSIS_THERMAL_COUNT (8 - CHASSIS_PSU_COUNT)
 
-/* MODIFY */
 #define PSU1_ID 1
 #define PSU2_ID 2
 
-/* MODIFY */
-#define PSU1_AC_PMBUS_PREFIX "/sys/bus/i2c/devices/11-005b/"
-#define PSU2_AC_PMBUS_PREFIX "/sys/bus/i2c/devices/10-0058/"
+#define PSU_AC_PMBUS_PREFIX "/bsp/power/psu%d_%s"
+#define PSU_AC_PMBUS_NODE(node) PSU_AC_PMBUS_PREFIX#node
 
-#define PSU1_AC_PMBUS_NODE(node) PSU1_AC_PMBUS_PREFIX#node
-#define PSU2_AC_PMBUS_NODE(node) PSU2_AC_PMBUS_PREFIX#node
+#define PSU_AC_HWMON_PREFIX "/bsp/module/psu%d_%s"
+#define PSU_AC_HWMON_NODE(node) PSU_AC_HWMON_PREFIX#node
 
-/* MODIFY */
-#define PSU1_AC_HWMON_PREFIX "/sys/bus/i2c/devices/11-0053/"
-#define PSU2_AC_HWMON_PREFIX "/sys/bus/i2c/devices/10-0050/"
+#define IDPROM_PATH "/bsp/eeprom/%s%d_info"
 
-#define PSU1_AC_HWMON_NODE(node) PSU1_AC_HWMON_PREFIX#node
-#define PSU2_AC_HWMON_NODE(node) PSU2_AC_HWMON_PREFIX#node
-
-/* MODIFY */
-#define IDPROM_PATH "/sys/class/i2c-adapter/i2c-1/1-0057/eeprom"
-
+int deviceNodeWrite(char *filename, char *buffer, int buf_size, int data_len);
 int deviceNodeWriteInt(char *filename, int value, int data_len);
 int deviceNodeReadBinary(char *filename, char *buffer, int buf_size, int data_len);
 int deviceNodeReadString(char *filename, char *buffer, int buf_size, int data_len);

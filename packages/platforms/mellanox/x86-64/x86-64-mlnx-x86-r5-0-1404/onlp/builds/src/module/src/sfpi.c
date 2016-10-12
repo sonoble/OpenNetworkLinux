@@ -32,45 +32,37 @@
 #include <onlplib/i2c.h>
 #include "platform_lib.h"
 
-#define MAX_SFP_PATH 64
+#define MAX_SFP_PATH           64
+#define SFP_SYSFS_VALUE_LEN    20
 static char sfp_node_path[MAX_SFP_PATH] = {0};
-/* MODIFY */
-#define MUX_START_INDEX 18
-#define NUM_OF_SFP_PORT 32
-static const int sfp_mux_index[NUM_OF_SFP_PORT] = {
- 4,  5,  6,  7,  9,  8, 11, 10,
- 0,  1,  2,  3, 12, 13, 14, 15,
-16, 17, 18, 19, 28, 29, 30, 31,
-20, 21, 22, 23, 24, 25, 26, 27
-};
+#define NUM_OF_SFP_PORT        32
+#define SFP_PRESENT_STATUS     "good"
+#define SFP_NOT_PRESENT_STATUS "not_connected"
 
-#define FRONT_PORT_TO_MUX_INDEX(port) (sfp_mux_index[port]+MUX_START_INDEX)
-
-/* MODIFY */
 static int
 sn2700_sfp_node_read_int(char *node_path, int *value, int data_len)
 {
     int ret = 0;
-    char buf[8];
-    *value = 0;
+    char buf[SFP_SYSFS_VALUE_LEN] = {0};
+    *value = -1;
 
     ret = deviceNodeReadString(node_path, buf, sizeof(buf), data_len);
 
     if (ret == 0) {
-        *value = atoi(buf);
+        if (!strncmp(buf, SFP_PRESENT_STATUS, sizeof(buf))) {
+            *value = 1;
+        } else if (!strncmp(buf, SFP_NOT_PRESENT_STATUS, sizeof(buf))) {
+            *value = 0;
+        }
     }
 
     return ret;
 }
 
-/* MODIFY */
 static char*
 sn2700_sfp_get_port_path(int port, char *node_name)
 {
-    sprintf(sfp_node_path, "/sys/bus/i2c/devices/%d-0050/%s",
-                           FRONT_PORT_TO_MUX_INDEX(port),
-                           node_name);
-
+    sprintf(sfp_node_path, "/bsp/qsfp/qsfp%d%s", port, node_name);
     return sfp_node_path;
 }
 
@@ -86,24 +78,22 @@ onlp_sfpi_init(void)
     return ONLP_STATUS_OK;
 }
 
-/* MODIFY */
 int
 onlp_sfpi_bitmap_get(onlp_sfp_bitmap_t* bmap)
 {
     /*
-     * Ports {0, 32}
+     * Ports {1, 32}
      */
-    int p;
+    int p = 1;
     AIM_BITMAP_CLR_ALL(bmap);
 
-    for(p = 0; p < NUM_OF_SFP_PORT; p++) {
+    for (; p <= NUM_OF_SFP_PORT; p++) {
         AIM_BITMAP_SET(bmap, p);
     }
 
     return ONLP_STATUS_OK;
 }
 
-/* MODIFY */
 int
 onlp_sfpi_is_present(int port)
 {
@@ -112,8 +102,8 @@ onlp_sfpi_is_present(int port)
      * Return 0 if not present.
      * Return < 0 if error.
      */
-    int present;
-    char* path = sn2700_sfp_get_port_path(port, "sfp_is_present");
+    int present = -1;
+    char* path = sn2700_sfp_get_port_path(port, "_status");
 
     if (sn2700_sfp_node_read_int(path, &present, 0) != 0) {
         AIM_LOG_ERROR("Unable to read present status from port(%d)\r\n", port);
@@ -123,56 +113,24 @@ onlp_sfpi_is_present(int port)
     return present;
 }
 
-/* MODIFY */
 int
 onlp_sfpi_presence_bitmap_get(onlp_sfp_bitmap_t* dst)
 {
-    uint32_t bytes[4];
-    char* path;
-    FILE* fp;
+    int ii = 1;
+    int rc = 0;
 
-    path = sn2700_sfp_get_port_path(0, "sfp_is_present_all");
-    fp = fopen(path, "r");
-
-    if(fp == NULL) {
-        AIM_LOG_ERROR("Unable to open the sfp_is_present_all device file.");
-        return ONLP_STATUS_E_INTERNAL;
-    }
-    int count = fscanf(fp, "%x %x %x %x",
-                       bytes+0,
-                       bytes+1,
-                       bytes+2,
-                       bytes+3
-                       );
-    fclose(fp);
-    if(count != AIM_ARRAYSIZE(bytes)) {
-        /* Likely a CPLD read timeout. */
-        AIM_LOG_ERROR("Unable to read all fields from the sfp_is_present_all device file.");
-        return ONLP_STATUS_E_INTERNAL;
-    }
-
-    /* Convert to 64 bit integer in port order */
-    int i = 0;
-    uint32_t presence_all = 0 ;
-    for(i = AIM_ARRAYSIZE(bytes)-1; i >= 0; i--) {
-        presence_all <<= 8;
-        presence_all |= bytes[i];
-    }
-
-    /* Populate bitmap */
-    for(i = 0; presence_all; i++) {
-        AIM_BITMAP_MOD(dst, i, (presence_all & 1));
-        presence_all >>= 1;
+    for (;ii <= NUM_OF_SFP_PORT; ii++) {
+        rc = onlp_sfpi_is_present(ii);
+        AIM_BITMAP_MOD(dst, ii, (1 == rc) ? 1 : 0);
     }
 
     return ONLP_STATUS_OK;
 }
 
-/* MODIFY */
 int
 onlp_sfpi_eeprom_read(int port, uint8_t data[256])
 {
-    char* path = sn2700_sfp_get_port_path(port, "sfp_eeprom");
+    char* path = sn2700_sfp_get_port_path(port, "");
 
     /*
      * Read the SFP eeprom into data[]
@@ -193,29 +151,37 @@ onlp_sfpi_eeprom_read(int port, uint8_t data[256])
 int
 onlp_sfpi_dev_readb(int port, uint8_t devaddr, uint8_t addr)
 {
-    int bus = FRONT_PORT_TO_MUX_INDEX(port);
-    return onlp_i2c_readb(bus, devaddr, addr, ONLP_I2C_F_FORCE);
+    return ONLP_STATUS_E_UNSUPPORTED;
 }
 
 int
 onlp_sfpi_dev_writeb(int port, uint8_t devaddr, uint8_t addr, uint8_t value)
 {
-    int bus = FRONT_PORT_TO_MUX_INDEX(port);
-    return onlp_i2c_writeb(bus, devaddr, addr, value, ONLP_I2C_F_FORCE);
+    return ONLP_STATUS_E_UNSUPPORTED;
 }
 
 int
 onlp_sfpi_dev_readw(int port, uint8_t devaddr, uint8_t addr)
 {
-    int bus = FRONT_PORT_TO_MUX_INDEX(port);
-    return onlp_i2c_readw(bus, devaddr, addr, ONLP_I2C_F_FORCE);
+    return ONLP_STATUS_E_UNSUPPORTED;
 }
 
 int
 onlp_sfpi_dev_writew(int port, uint8_t devaddr, uint8_t addr, uint16_t value)
 {
-    int bus = FRONT_PORT_TO_MUX_INDEX(port);
-    return onlp_i2c_writew(bus, devaddr, addr, value, ONLP_I2C_F_FORCE);
+    return ONLP_STATUS_E_UNSUPPORTED;
+}
+
+int
+onlp_sfpi_control_supported(int port, onlp_sfp_control_t control, int* rv)
+{
+    return ONLP_STATUS_E_UNSUPPORTED;
+}
+
+int
+onlp_sfpi_control_get(int port, onlp_sfp_control_t control, int* value)
+{
+    return ONLP_STATUS_E_UNSUPPORTED;
 }
 
 int
