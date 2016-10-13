@@ -149,6 +149,12 @@ onlp_sfpi_eeprom_read(int port, uint8_t data[256])
 }
 
 int
+onlp_sfpi_dom_read(int port, uint8_t data[256])
+{
+    return onlp_sfpi_eeprom_read(port, data);
+}
+
+int
 onlp_sfpi_dev_readb(int port, uint8_t devaddr, uint8_t addr)
 {
     return ONLP_STATUS_E_UNSUPPORTED;

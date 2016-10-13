@@ -42,7 +42,6 @@
 #define NUM_OF_PSU_ON_MAIN_BROAD      2
 #define NUM_OF_LED_ON_MAIN_BROAD      6
 
-/* MODIFY */
 #define PREFIX_PATH_ON_CPLD_DEV          "/bsp/cpld"
 #define NUM_OF_CPLD                      3
 static char arr_cplddev_name[NUM_OF_CPLD][30] =
@@ -85,7 +84,7 @@ onlp_sysi_platform_info_get(onlp_platform_info_t* pi)
             return ONLP_STATUS_E_INTERNAL;
         }
     }
-    pi->cpld_versions = aim_fstrdup("%d.%d.%d", v[0], v[1], v[2]);
+    pi->cpld_versions = aim_fstrdup("brd=%d, mgmt=%d, port=%d", v[0], v[1], v[2]);
 
     return ONLP_STATUS_OK;
 }
@@ -134,7 +133,7 @@ onlp_sysi_oids_get(onlp_oid_t* table, int max)
 static int
 _onlp_sysi_grep_output(char value[256], const char *attr, const char *tmp_file)
 {
-    int value_offset = 30;
+    int value_offset  = 30; /* value offset in onie-syseeprom */
     char buffer[256]  = {0};
     char command[256] = {0};
     int v = 0;

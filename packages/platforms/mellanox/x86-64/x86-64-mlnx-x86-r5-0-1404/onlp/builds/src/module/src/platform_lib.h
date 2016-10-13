@@ -26,6 +26,8 @@
 #define __PLATFORM_LIB_H__
 
 #include "x86_64_mlnx_x86_r5_0_1404_log.h"
+#include <onlp/fan.h>
+#include <onlp/psu.h>
 
 #define CHASSIS_PSU_COUNT     2
 #define CHASSIS_FAN_COUNT     (10 - CHASSIS_PSU_COUNT)
@@ -34,12 +36,8 @@
 #define PSU1_ID 1
 #define PSU2_ID 2
 
-#define PSU_AC_PMBUS_PREFIX "/bsp/power/psu%d_%s"
-#define PSU_AC_PMBUS_NODE(node) PSU_AC_PMBUS_PREFIX#node
-
-#define PSU_AC_HWMON_PREFIX "/bsp/module/psu%d_%s"
-#define PSU_AC_HWMON_NODE(node) PSU_AC_HWMON_PREFIX#node
-
+#define PSU_MODULE_PREFIX "/bsp/module/psu%d_%s"
+#define PSU_POWER_PREFIX "/bsp/power/psu%d_%s"
 #define IDPROM_PATH "/bsp/eeprom/%s%d_info"
 
 int deviceNodeWrite(char *filename, char *buffer, int buf_size, int data_len);
@@ -62,6 +60,9 @@ psu_type_t get_psu_type(int id, char* modelname, int modelname_len);
 #else
     #define DEBUG_PRINT(format, ...)
 #endif
+
+int psu_read_eeprom(int psu_index, onlp_psu_info_t* psu_info,
+                     onlp_fan_info_t* fan_info);
 
 #endif  /* __PLATFORM_LIB_H__ */
 

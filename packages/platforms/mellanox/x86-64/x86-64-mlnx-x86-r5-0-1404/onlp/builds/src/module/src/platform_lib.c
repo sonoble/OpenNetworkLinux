@@ -29,6 +29,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <AIM/aim.h>
+#include <onlplib/file.h>
 #include "platform_lib.h"
 
 int deviceNodeWrite(char *filename, char *buffer, int buf_size, int data_len)
@@ -112,4 +113,53 @@ int deviceNodeReadString(char *filename, char *buffer, int buf_size, int data_le
     }
 
     return ret;
+}
+
+int
+psu_read_eeprom(int psu_index, onlp_psu_info_t* psu_info, onlp_fan_info_t* fan_info)
+{
+    char path[64] = {0};
+    const char sanity_check[]   = "MLNX";
+    const uint8_t serial_len    = 24;
+    char data[256] = {0};
+    bool sanity_found = false;
+    int index = 0;
+    int rv  = 0;
+    int len = 0;
+
+    snprintf(path, sizeof(path), IDPROM_PATH, "psu", psu_index);
+    rv = onlp_file_read((uint8_t* )data, sizeof(data)-1, &len, path);
+    if (rv < 0) {
+        return ONLP_STATUS_E_INTERNAL;
+    }
+
+    /* Looking for sanity checker */
+    while (index < sizeof(data) - sizeof(sanity_check) - 1) {
+        if (!strncmp(&data[index], sanity_check, sizeof(sanity_check) - 1)) {
+            sanity_found = true;
+            break;
+        }
+        index++;
+    }
+    if (false == sanity_found) {
+        return ONLP_STATUS_E_INVALID;
+    }
+
+    /* Serial number */
+    index += strlen(sanity_check);
+    if (psu_info) {
+        strncpy(psu_info->serial, &data[index], sizeof(psu_info->serial));
+    } else if (fan_info) {
+        strncpy(fan_info->serial, &data[index], sizeof(fan_info->serial));
+    }
+
+    /* Part number */
+    index += serial_len;
+    if (psu_info) {
+        strncpy(psu_info->model, &data[index], sizeof(psu_info->model));
+    } else if (fan_info) {
+        strncpy(fan_info->model, &data[index], sizeof(fan_info->model));
+    }
+
+    return ONLP_STATUS_OK;
 }
