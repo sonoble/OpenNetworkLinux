@@ -42,6 +42,8 @@
 #define NUM_OF_PSU_ON_MAIN_BROAD      2
 #define NUM_OF_LED_ON_MAIN_BROAD      6
 
+#define COMMAND_OUTPUT_BUFFER        256
+
 #define PREFIX_PATH_ON_CPLD_DEV          "/bsp/cpld"
 #define NUM_OF_CPLD                      3
 static char arr_cplddev_name[NUM_OF_CPLD][30] =
@@ -51,9 +53,40 @@ static char arr_cplddev_name[NUM_OF_CPLD][30] =
     "cpld_port_version"
 };
 
+static void
+_onlp_sysi_execute_command(char *command, char buffer[COMMAND_OUTPUT_BUFFER])
+{
+    FILE *fp = NULL;
+
+    /* Open the command for reading. */
+    fp = popen(command, "r");
+    if (NULL == fp) {
+        DEBUG_PRINT("[Debug][%s][%d]Failed to run command '%s'\n",
+                    __FUNCTION__, __LINE__, command);
+    }
+
+    /* Read the output */
+    if (fgets(buffer, COMMAND_OUTPUT_BUFFER-1, fp) == NULL) {
+        DEBUG_PRINT("[Debug][%s][%d]Failed to read output of command '%s'\n",
+                    __FUNCTION__, __LINE__, command);
+        pclose(fp);
+    }
+
+    /* The last symbol is '\n', so remote it */
+    buffer[strnlen(buffer, COMMAND_OUTPUT_BUFFER) - 1] = '\0';
+
+    /* close */
+    pclose(fp);
+}
+
 const char*
 onlp_sysi_platform_get(void)
 {
+    /*static char buffer[COMMAND_OUTPUT_BUFFER] = {0};
+
+    _onlp_sysi_execute_command("onie-shell -c \"onie-sysinfo -p\"", buffer);
+
+    return buffer;*/
     return "x86-64-mlnx-x86-r5-0-1404";
 }
 
@@ -134,29 +167,12 @@ static int
 _onlp_sysi_grep_output(char value[256], const char *attr, const char *tmp_file)
 {
     int value_offset  = 30; /* value offset in onie-syseeprom */
-    char buffer[256]  = {0};
     char command[256] = {0};
+    char buffer[COMMAND_OUTPUT_BUFFER]  = {0};
     int v = 0;
-    FILE *fp = NULL;
 
-    /* Open the command for reading. */
     snprintf(command, sizeof(command), "cat '%s' | grep '%s'", tmp_file, attr);
-    fp = popen(command, "r");
-    if (NULL == fp) {
-        DEBUG_PRINT("[Debug][%s][%d]Failed to run command '%s'\n",
-                    __FUNCTION__, __LINE__, command);
-        return ONLP_STATUS_E_INTERNAL;
-    }
-
-    /* Read the output */
-    if (fgets(buffer, sizeof(buffer)-1, fp) == NULL) {
-        DEBUG_PRINT("[Debug][%s][%d]Failed to read output of command '%s'\n",
-                    __FUNCTION__, __LINE__, command);
-        pclose(fp);
-        return ONLP_STATUS_E_INTERNAL;
-    }
-    /* close */
-    pclose(fp);
+    _onlp_sysi_execute_command(command, buffer);
 
     /* Reading value from buffer with command output */
     while (buffer[value_offset] != '\n' &&
@@ -221,6 +237,20 @@ onlp_sysi_onie_info_get(onlp_onie_info_t* onie)
         return rc;
     }
     onie->manufacturer = aim_strdup(value);
+    rc = _onlp_sysi_grep_output(value, "Manufacturer", tmp_file);
+    if (ONLP_STATUS_OK != rc) {
+        return rc;
+    }
+    onie->manufacturer = aim_strdup(value);
+    onie->vendor = aim_strdup(value);
+    rc = _onlp_sysi_grep_output(value, "MAC Addresses", tmp_file);
+    if (ONLP_STATUS_OK != rc) {
+        return rc;
+    }
+    onie->mac_range = atoi(value);
+    /* ONIE version */
+    _onlp_sysi_execute_command("onie-shell -c 'onie-sysinfo -v'", value);
+    onie->onie_version = aim_strdup(value);
 
     return ONLP_STATUS_OK;
 }

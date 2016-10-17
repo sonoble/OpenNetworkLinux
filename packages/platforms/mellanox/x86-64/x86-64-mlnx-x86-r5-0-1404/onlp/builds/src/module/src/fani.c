@@ -31,6 +31,8 @@
 #define PREFIX_PATH        "/bsp/fan/"
 #define PREFIX_MODULE_PATH "/bsp/module/"
 
+#define FAN_STATUS_OK  1
+
 #define PERCENTAGE_MIN 60.0
 #define PERCENTAGE_MAX 100.0
 #define RPM_MAGIC_MIN  153.0
@@ -258,7 +260,7 @@ _onlp_fani_info_get_fan(int local_id, onlp_fan_info_t* info)
     */
     snprintf(fullpath, sizeof(fullpath), "%s%s", PREFIX_MODULE_PATH, fan_path[(int)fru_index].status);
     OPEN_READ_FILE(fd, fullpath, r_data, nbytes, len);
-    if (atoi(r_data) != 1) {
+    if (atoi(r_data) != FAN_STATUS_OK) {
         return ONLP_STATUS_OK;
     }
     info->status |= ONLP_FAN_STATUS_PRESENT;
@@ -268,6 +270,12 @@ _onlp_fani_info_get_fan(int local_id, onlp_fan_info_t* info)
     snprintf(fullpath, sizeof(fullpath), "%s%s", PREFIX_PATH, fan_path[local_id].r_speed_get);
     OPEN_READ_FILE(fd, fullpath, r_data, nbytes, len);
     info->rpm = atoi(r_data);
+
+    /* check failure */
+    if (info->rpm <= 0) {
+      info->status |= ONLP_FAN_STATUS_FAILED;
+      return ONLP_STATUS_OK;
+    }
 
     if (ONLP_FAN_CAPS_GET_PERCENTAGE & info->caps) {
         /* get fan min speed
@@ -295,12 +303,6 @@ _onlp_fani_info_get_fan(int local_id, onlp_fan_info_t* info)
         }
     }
 
-    /* check failure */
-    if (info->rpm <= 0) {
-      info->status |= ONLP_FAN_STATUS_FAILED;
-      return ONLP_STATUS_OK;
-    }
-
     return _onlp_fani_read_fan_eeprom(local_id, info);
 }
 
@@ -312,22 +314,12 @@ _onlp_fani_info_get_fan_on_psu(int local_id, int psu_id, onlp_fan_info_t* info)
     char  fullpath[80] = {0};
     float rpms_per_perc = 0.0;
     float temp = 0.0;
-    int   fru_index = 0;
-
-    /* We have 4 FRU with 2 fans(total 8 fans).
-       Eeprom is per FRU but not per fan.
-       So, need to convert fan ID to FRU ID.*/
-    if (FAN_1_ON_PSU1 == local_id) {
-        fru_index = PSU1_ID;
-    } else if (FAN_1_ON_PSU2 == local_id) {
-        fru_index = PSU2_ID;
-    }
 
     /* get fan status
     */
-    snprintf(fullpath, sizeof(fullpath), "%s%s", PREFIX_MODULE_PATH, fan_path[fru_index].status);
+    snprintf(fullpath, sizeof(fullpath), "%s%s", PREFIX_MODULE_PATH, fan_path[local_id].status);
     OPEN_READ_FILE(fd, fullpath, r_data, nbytes, len);
-    if (atoi(r_data) != 1) {
+    if (atoi(r_data) != FAN_STATUS_OK) {
         return ONLP_STATUS_OK;
     }
     info->status |= ONLP_FAN_STATUS_PRESENT;
@@ -338,6 +330,12 @@ _onlp_fani_info_get_fan_on_psu(int local_id, int psu_id, onlp_fan_info_t* info)
     OPEN_READ_FILE(fd, fullpath, r_data, nbytes, len);
     info->rpm = atoi(r_data);
 
+    /* check failure */
+    if (info->rpm <= 0) {
+      info->status |= ONLP_FAN_STATUS_FAILED;
+      return ONLP_STATUS_OK;
+    }
+
     /* get speed percentage from rpm */
     rpms_per_perc = PSU_FAN_RPM_MIN / PERCENTAGE_MIN;
     temp = (float)info->rpm / rpms_per_perc;
@@ -345,12 +343,6 @@ _onlp_fani_info_get_fan_on_psu(int local_id, int psu_id, onlp_fan_info_t* info)
       temp = PERCENTAGE_MIN;
     }
     info->percentage = (int)temp;
-
-    /* check failure */
-    if (info->rpm <= 0) {
-      info->status |= ONLP_FAN_STATUS_FAILED;
-      return ONLP_STATUS_OK;
-    }
 
     /* Serial number and model for PSU fan is the same as for appropriate PSU */
     if (FAN_1_ON_PSU1 == local_id) {
