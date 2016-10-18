@@ -82,11 +82,7 @@ _onlp_sysi_execute_command(char *command, char buffer[COMMAND_OUTPUT_BUFFER])
 const char*
 onlp_sysi_platform_get(void)
 {
-    /*static char buffer[COMMAND_OUTPUT_BUFFER] = {0};
-
-    _onlp_sysi_execute_command("onie-shell -c \"onie-sysinfo -p\"", buffer);
-
-    return buffer;*/
+    /* TODO: change to 'x86_64-mlnx_msn2700-r0' later */
     return "x86-64-mlnx-x86-r5-0-1404";
 }
 
@@ -251,6 +247,9 @@ onlp_sysi_onie_info_get(onlp_onie_info_t* onie)
     /* ONIE version */
     _onlp_sysi_execute_command("onie-shell -c 'onie-sysinfo -v'", value);
     onie->onie_version = aim_strdup(value);
+    /* Platform name */
+    _onlp_sysi_execute_command("onie-shell -c 'onie-sysinfo -p'", value);
+    onie->platform_name = aim_strdup(value);
 
     return ONLP_STATUS_OK;
 }
