@@ -170,7 +170,7 @@ onlp_file_read_int_max(int* value, char** files)
 
     for(s = files; *s; s++) {
         int value = 0;
-        int rv = onlp_file_read_int(value, *s);
+        int rv = onlp_file_read_int(&value, *s);
         if(rv < 0) {
             return rv;
         }
