@@ -1,2 +1,2 @@
-!include onlp-platform-any.yml PLATFORM=x86-64-mlnx-x86-r5-0-1404 ARCH=amd64 TOOLCHAIN=x86_64-linux-gnu
+!include $ONL_TEMPLATES/onlp-platform-any.yml PLATFORM=x86-64-mlnx-x86-r5-0-1404 ARCH=amd64 TOOLCHAIN=x86_64-linux-gnu
 
