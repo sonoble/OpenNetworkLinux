@@ -19,6 +19,14 @@ installer:
 upgrade:
   onie:
     auto: advisory
+    package:
+      dir: /lib/platform-config/current/onl/upgrade/onie
+
+  firmware:
+    auto: advisory
+    package:
+      dir: /lib/platform-config/current/onl/upgrade/firmware
+
   loader:
     auto: advisory
     versions: /etc/onl/loader/versions.json
@@ -32,6 +40,7 @@ upgrade:
         - onl-loader-fit.itb
   swi:
     auto: disabled
+
 
 pki:
   key:
