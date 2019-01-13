@@ -6,10 +6,9 @@
 trigger:
 - master
 
-jobs:
-- job: Test
+job: Test
   timeoutInMinutes: 0
-  
+
 pool:
   vmImage: 'Ubuntu-16.04'
 
