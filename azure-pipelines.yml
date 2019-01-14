@@ -11,5 +11,5 @@ pool:
 
 steps:
 - script: |
-    docker/tools/onlbuilder --non-interactive -c "source setup.env; make amd64"
-  displayName: 'make amd64'
+    tools/autobuild/build.sh -9
+  displayName: 'make build.sh -9'
