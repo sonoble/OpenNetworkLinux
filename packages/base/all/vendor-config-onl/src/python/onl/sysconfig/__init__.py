@@ -31,7 +31,9 @@ class DotDict(dict):
 
 
 class OnlSystemConfig(object):
-    SYSTEM_CONFIG_DIR = '/etc/onl/sysconfig'
+    SYSTEM_CONFIG_DIRS = [ '/etc/onl/sysconfig',
+                           '/mnt/onl/config/sysconfig',
+    ]
 
     def __init__(self):
 
@@ -39,16 +41,14 @@ class OnlSystemConfig(object):
         self.variables = {}
         self.variables['PLATFORM'] = platform.platform()
         self.variables['ARCH'] = pp.machine()
-        self.variables['PARCH'] = dict(ppc='powerpc',
-                                       x86_64='amd64',
-                                       armv7l='armel',
-                                       aarch64='arm64')[pp.machine()]
-
+        self.variables['PARCH'] = onl.util.dpkg_architecture()
         self.config = {}
-        for f in sorted(os.listdir(self.SYSTEM_CONFIG_DIR)):
-            if f.endswith('.yml'):
-                d = onl.onlyaml.loadf(os.path.join(self.SYSTEM_CONFIG_DIR, f), self.variables)
-                self.config = onl.util.dmerge(self.config, d)
+        for dir_ in self.SYSTEM_CONFIG_DIRS:
+            if os.path.isdir(dir_):
+                for f in sorted(os.listdir(dir_)):
+                    if f.endswith('.yml'):
+                        d = onl.onlyaml.loadf(os.path.join(dir_, f), self.variables)
+                        self.config = onl.util.dmerge(self.config, d)
 
         self.config['pc'] = platform.platform_config
 

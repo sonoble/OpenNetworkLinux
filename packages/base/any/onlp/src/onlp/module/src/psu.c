@@ -60,6 +60,37 @@ onlp_psu_info_get_locked__(onlp_oid_t id,  onlp_psu_info_t* info)
 }
 ONLP_LOCKED_API2(onlp_psu_info_get, onlp_oid_t, id, onlp_psu_info_t*, info);
 
+static int
+onlp_psu_status_get_locked__(onlp_oid_t id, uint32_t* status)
+{
+    int rv = onlp_psui_status_get(id, status);
+    if(ONLP_SUCCESS(rv)) {
+        return rv;
+    }
+    if(ONLP_UNSUPPORTED(rv)) {
+        onlp_psu_info_t pi;
+        rv = onlp_psui_info_get(id, &pi);
+        *status = pi.status;
+    }
+    return rv;
+}
+ONLP_LOCKED_API2(onlp_psu_status_get, onlp_oid_t, id, uint32_t*, status);
+
+static int
+onlp_psu_hdr_get_locked__(onlp_oid_t id, onlp_oid_hdr_t* hdr)
+{
+    int rv = onlp_psui_hdr_get(id, hdr);
+    if(ONLP_SUCCESS(rv)) {
+        return rv;
+    }
+    if(ONLP_UNSUPPORTED(rv)) {
+        onlp_psu_info_t pi;
+        rv = onlp_psui_info_get(id, &pi);
+        memcpy(hdr, &pi.hdr, sizeof(pi.hdr));
+    }
+    return rv;
+}
+ONLP_LOCKED_API2(onlp_psu_hdr_get, onlp_oid_t, id, onlp_oid_hdr_t*, hdr);
 int
 onlp_psu_vioctl_locked__(onlp_oid_t id, va_list vargs)
 {
@@ -112,7 +143,7 @@ onlp_psu_dump(onlp_oid_t id, aim_pvs_t* pvs, uint32_t flags)
             iof_iprintf(&iof, "Iout:   %d", info.miout);
             iof_iprintf(&iof, "Pin:    %d", info.mpin);
             iof_iprintf(&iof, "Pout:   %d", info.mpout);
-            if(flags & ONLP_OID_DUMP_F_RECURSE) {
+            if(flags & ONLP_OID_DUMP_RECURSE) {
                 onlp_oid_table_dump(info.hdr.coids, &iof.inherit, flags);
             }
         }
@@ -134,7 +165,7 @@ onlp_psu_show(onlp_oid_t id, aim_pvs_t* pvs, uint32_t flags)
     onlp_oid_show_iof_init_default(&iof, pvs, flags);
     rv = onlp_psu_info_get(id, &pi);
 
-    yaml = flags & ONLP_OID_SHOW_F_YAML;
+    yaml = flags & ONLP_OID_SHOW_YAML;
 
     if(yaml) {
         iof_push(&iof, "- ");
@@ -165,7 +196,7 @@ onlp_psu_show(onlp_oid_t id, aim_pvs_t* pvs, uint32_t flags)
             }
             else {
                 iof_iprintf(&iof, "Status: Running");
-                iof_iprintf(&iof, "Model: %s", pi.model[0] ? pi.model : "Unknown");
+                if(pi.model[0]) iof_iprintf(&iof, "Model: %s", pi.model);
                 if(pi.serial[0]) iof_iprintf(&iof, "SN: %s", pi.serial);
                 if(pi.caps & ONLP_PSU_CAPS_AC) {
                     iof_iprintf(&iof, "Type: AC");
@@ -204,7 +235,7 @@ onlp_psu_show(onlp_oid_t id, aim_pvs_t* pvs, uint32_t flags)
                                 ONLP_MILLI_NORMAL_INTEGER_TENTHS(pi.mpout));
                 }
 
-                if(flags & ONLP_OID_SHOW_F_RECURSE) {
+                if(flags & ONLP_OID_SHOW_RECURSE) {
                     /*
                      * Display sub oids.
                      *
@@ -233,7 +264,7 @@ onlp_psu_show(onlp_oid_t id, aim_pvs_t* pvs, uint32_t flags)
                         iof_pop(&iof);
                     }
 
-                    if(flags & ONLP_OID_SHOW_F_EXTENDED) {
+                    if(flags & ONLP_OID_SHOW_EXTENDED) {
                         /* Include all other types as well. */
                         ONLP_OID_TABLE_ITER_TYPE(pi.hdr.coids, oidp, LED) {
                             onlp_oid_show(*oidp, &iof.inherit, flags);

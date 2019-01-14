@@ -26,6 +26,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 
+#include <onlplib/i2c.h>
 #include <onlplib/file.h>
 #include <onlp/platformi/sysi.h>
 #include <onlp/platformi/ledi.h>
@@ -52,17 +53,26 @@ onlp_sysi_platform_get(void)
 int
 onlp_sysi_onie_data_get(uint8_t** data, int* size)
 {
+    int ret = ONLP_STATUS_OK;
+    int i = 0;
     uint8_t* rdata = aim_zmalloc(256);
-    if(onlp_file_read(rdata, 256, size, IDPROM_PATH) == ONLP_STATUS_OK) {
-        if(*size == 256) {
-            *data = rdata;
-            return ONLP_STATUS_OK;
+  
+    for (i = 0; i < 128; i++) {
+        ret = onlp_i2c_readw(0, 0x56, i*2, ONLP_I2C_F_FORCE);
+        if (ret < 0) {
+            aim_free(rdata);
+            *size = 0;
+            return ret;
         }
+
+        rdata[i*2]   = ret & 0xff;
+        rdata[i*2+1] = (ret >> 8) & 0xff;
     }
 
-    aim_free(rdata);
-    *size = 0;
-    return ONLP_STATUS_E_INTERNAL;
+    *size = 256;
+    *data = rdata;
+
+    return ONLP_STATUS_OK;
 }
 
 int
@@ -170,7 +180,7 @@ onlp_sysi_platform_manage_fans(void)
 
         /* Decision 1: Set fan as full speed if any fan is failed.
          */
-        if (fan_info.status & ONLP_FAN_STATUS_FAILED) {
+        if (fan_info.status & ONLP_FAN_STATUS_FAILED || !(fan_info.status & ONLP_FAN_STATUS_PRESENT)) {
             AIM_LOG_ERROR("Fan(%d) is not working, set the other fans as full speed\r\n", i);
             return onlp_fani_percentage_set(ONLP_FAN_ID_CREATE(1), FAN_DUTY_CYCLE_MAX);
         }

@@ -10,7 +10,7 @@ installer:
   os_name: Open Network Linux
   grub:
     - $PLATFORM.cpio.gz
-    - onl-loader-initrd-$PARCH.cpio.gz
+    - onl-loader-initrd-amd64.cpio.gz
 
   fit:
     - $PLATFORM.itb
@@ -22,13 +22,16 @@ upgrade:
     package:
       dir: /lib/platform-config/current/onl/upgrade/onie
 
+  system:
+    auto: force
+
   firmware:
     auto: advisory
     package:
       dir: /lib/platform-config/current/onl/upgrade/firmware
 
   loader:
-    auto: advisory
+    auto: force
     versions: /etc/onl/loader/versions.json
     package:
       dir: /etc/onl/upgrade/$PARCH

@@ -42,7 +42,7 @@ Multistrap:
 
   ONL:
     packages: *Packages
-    source: http://apt.opennetlinux.org/debian
+    source: http://${APT_CACHE}apt.opennetlinux.org/debian
     suite: unstable
     omitdebsrc: true
 
@@ -69,8 +69,6 @@ Configure:
     - 'nfs-common remove'
     - 'rpcbind remove'
     - 'motd remove'
-    - 'kexec remove'
-    - 'kexec-load remove'
     - 'mountall-bootclean.sh remove'
     - 'mountall.sh remove'
     - 'checkfs.sh remove'

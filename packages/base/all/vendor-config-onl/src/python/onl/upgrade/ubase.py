@@ -15,8 +15,9 @@ import string
 import argparse
 import yaml
 from time import sleep
+import onl.util
 
-from onl.platform.current import OnlPlatform
+from onl.platform.current import OnlPlatform, OnlPlatformName
 from onl.mounts import OnlMountManager, OnlMountContextReadOnly, OnlMountContextReadWrite
 
 class BaseUpgrade(object):
@@ -37,7 +38,7 @@ class BaseUpgrade(object):
         self.init_argparser()
         self.load_config()
         self.arch = pp.machine()
-        self.parch = dict(ppc='powerpc', x86_64='amd64', armv7l='armel', aarch64='arm64')[self.arch]
+        self.parch = onl.util.dpkg_architecture()
         self.platform = OnlPlatform()
         self.init()
 
@@ -76,6 +77,7 @@ class BaseUpgrade(object):
         self.ap.add_argument("--check", action='store_true', help="Check only.")
         self.ap.add_argument("--auto-upgrade", help="Override auto-upgrade mode.", default=self.auto_upgrade_default())
         self.ap.add_argument("--summarize", action='store_true', help="Summarize only, no upgrades.")
+        self.ap.add_argument("--quiet", action='store_true', help="No output.")
 
     def banner(self):
         self.logger.info("************************************************************")
@@ -163,7 +165,7 @@ class BaseUpgrade(object):
             return default
 
 
-    UPGRADE_STATUS_JSON = "/lib/platform-config/current/onl/upgrade.json"
+    UPGRADE_STATUS_JSON = "/lib/platform-config/%s/onl/upgrade.json" % (OnlPlatformName)
 
     @staticmethod
     def upgrade_status_get():
@@ -176,8 +178,9 @@ class BaseUpgrade(object):
     def update_upgrade_status(self, key, value):
         data = self.upgrade_status_get()
         data[key] = value
-        with open(self.UPGRADE_STATUS_JSON, "w") as f:
-            json.dump(data, f)
+        if os.path.exists(os.path.dirname(BaseUpgrade.UPGRADE_STATUS_JSON)):
+            with open(self.UPGRADE_STATUS_JSON, "w") as f:
+                json.dump(data, f)
 
     #
     # Initialize self.current_version, self.next_Version
@@ -365,6 +368,8 @@ If you choose not to perform this upgrade booting cannot continue.""" % self.aty
 
     def main(self):
         self.ops = self.ap.parse_args()
+        if self.ops.quiet:
+            self.logger.setLevel(logging.WARNING)
         self.banner()
         self.init_upgrade()
         self.summarize()
@@ -390,24 +395,28 @@ class BaseOnieUpgrade(BaseUpgrade):
                 dst = os.path.join(self.ONIE_UPDATER_PATH, f)
                 self.copyfile(src, dst)
 
+    def onie_fwpkg_exists(self):
+        import onl.grub
+        return onl.grub.onie_fwpkg_exists()
+
+    def onie_fwpkg_add(self, pkg):
+        import onl.grub
+        onl.grub.onie_fwpkg("-f purge")
+        onl.grub.onie_fwpkg("add %s" % pkg)
+        onl.grub.onie_fwpkg("show")
 
     def initiate_onie_update(self):
         self.logger.info("Initiating %s Update." % self.Name)
+
         if self.arch == 'ppc':
             # Initiate update
             self.fw_setenv('onie_boot_reason', 'update')
             self.reboot()
 
         elif self.arch == 'x86_64':
-            OB = "/mnt/onie-boot"
-            self.mount(OB, label="ONIE-BOOT")
-            if os.system("/mnt/onie-boot/onie/tools/bin/onie-boot-mode -o update") != 0:
-                self.abort("Could not set ONIE Boot Mode to Update. Upgrade cannot continue.")
-            self.umount(OB)
-
-            with OnlMountContextReadWrite("ONL-BOOT", logger=None):
-                with open("/mnt/onl/boot/grub/grub.cfg", "a") as f:
-                    f.write("set default=ONIE\n")
+            import onl.grub
+            onl.grub.onie_boot_mode_set("update")
+            onl.grub.boot_onie()
             self.reboot()
 
         else:

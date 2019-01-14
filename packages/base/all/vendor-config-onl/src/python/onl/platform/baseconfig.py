@@ -33,6 +33,7 @@ def baseconfig():
                    'i386-linux-gnu',
                    'x86_64-linux-gnu',
                    'arm-linux-gnueabi',
+                   'arm-linux-gnueabihf',
                    'aarch64-linux-gnu',
                    ]
 
@@ -60,6 +61,20 @@ def baseconfig():
             os.symlink(l, DEFAULT_ONLP_LIB)
 
     ONLPDUMP = "%s/bin/onlpdump" % (platform.basedir_onl())
+
+    try:
+        import dmidecode
+        with open("%s/dmi-system-version" % platform.basedir_onl(), "w") as f:
+            f.write(dmidecode.QuerySection('system')['0x0001']['data']['Version'])
+    except:
+        pass
+    finally:
+        if 'dmidecodemod' in sys.modules:
+            mod = sys.modules['dmidecodemod']
+            buf = mod.get_warnings()
+            if buf:
+                [msg("*** %s\n" % x) for x in buf.splitlines(False)]
+            mod.clear_warnings()
 
     if not platform.baseconfig():
         msg("*** platform class baseconfig failed.\n", fatal=True)
