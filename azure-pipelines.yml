@@ -4,12 +4,12 @@
 # https://docs.microsoft.com/azure/devops/pipelines/apps/c-cpp/gcc
 
 trigger:
-- master
+- azure
 
 pool:
   vmImage: 'Ubuntu-16.04'
 
 steps:
 - script: |
-    tools/autobuild/build.sh -9
-  displayName: 'make build.sh -9'
+    tools/autobuild/build_azure.sh
+    displayName: 'make azure amd64'
