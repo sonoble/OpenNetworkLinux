@@ -6,13 +6,13 @@
 trigger:
 - master
 
-job: Test
-  timeoutInMinutes: 0
-
 pool:
   vmImage: 'Ubuntu-16.04'
 
 steps:
 - script: |
-    make docker
+    docker/tools/onlbuilder
+    . setup.env
+    apt-cacher-ng
+    make amd64
   displayName: 'make'
