@@ -3,7 +3,7 @@
 Base classes for installers.
 """
 
-import os, stat
+import os, sys, stat
 import subprocess
 import re
 import tempfile
@@ -13,13 +13,28 @@ import parted
 import yaml
 import zipfile
 import shutil
+import imp
+import fnmatch, glob
 
 from InstallUtils import SubprocessMixin
-from InstallUtils import MountContext, BlkidParser, PartedParser
+from InstallUtils import MountContext, BlkidParser, PartedParser, UbinfoParser
 from InstallUtils import ProcMountsParser
+from InstallUtils import GdiskParser
+from InstallUtils import OnieSubprocess
+from Plugin import Plugin
+
+import onl.install.ConfUtils
 
 import onl.YamlUtils
 from onl.sysconfig import sysconfig
+
+try:
+    PartedException = parted._ped.PartedException
+    DiskException = parted._ped.DiskException
+except AttributeError:
+    import _ped
+    PartedException = _ped.PartedException
+    DiskException = _ped.DiskException
 
 class Base:
 
@@ -68,6 +83,7 @@ class Base:
         # keep track of next partition/next block
 
         self.blkidParts = []
+        self.ubiParts = []
         # current scan of partitions and labels
 
         self.partedDevice = None
@@ -80,11 +96,23 @@ class Base:
         self.zf = None
         # zipfile handle to installer archive
 
+        self.plugins = []
+        # dynamically-detected plugins
+
     def run(self):
         self.log.error("not implemented")
         return 1
 
+    def upgradeBootLoader(self):
+        self.log.error("not implemented")
+        return 1
+
     def shutdown(self):
+
+        plugins, self.plugins = self.plugins, []
+        for plugin in plugins:
+            plugin.shutdown()
+
         zf, self.zf = self.zf, None
         if zf: zf.close()
 
@@ -94,7 +122,7 @@ class Base:
         src = os.path.join(self.im.installerConf.installer_dir, basename)
         if os.path.exists(src):
             self.copy2(src, dst)
-            return
+            return True
 
         if basename in self.zf.namelist():
             self.log.debug("+ unzip -p %s %s > %s",
@@ -102,10 +130,12 @@ class Base:
             with self.zf.open(basename, "r") as rfd:
                 with open(dst, "wb") as wfd:
                     shutil.copyfileobj(rfd, wfd)
-            return
+            return True
 
         if not optional:
             raise ValueError("missing installer file %s" % basename)
+
+        return False
 
     def installerDd(self, basename, device):
 
@@ -346,7 +376,10 @@ class Base:
         basename = 'boot-config'
         with MountContext(dev.device, log=self.log) as ctx:
             dst = os.path.join(ctx.dir, basename)
-            self.installerCopy(basename, dst)
+
+            if not self.installerCopy(basename, dst, True):
+                return
+
             with open(dst) as fd:
                 buf = fd.read()
 
@@ -382,7 +415,7 @@ class Base:
         for m in pm.mounts:
             if m.device.startswith(self.device):
                 if not self.force:
-                    self.log.error("mount %s on %s will be erased by install",
+                    self.log.error("mount %s on %s will be erased by install (try --force)",
                                    m.dir, m.device)
                     return 1
                 else:
@@ -396,14 +429,84 @@ class Base:
 
         return 0
 
+    def loadPluginsFromFile(self, pyPath):
+        self.log.info("loading plugins from %s", pyPath)
+        with open(pyPath) as fd:
+            sfx = ('.py', 'U', imp.PY_SOURCE,)
+            moduleName = os.path.splitext(os.path.basename(pyPath))[0]
+            mod = imp.load_module("onl_install_plugin_%s" % moduleName, fd, pyPath, sfx)
+            for attr in dir(mod):
+                klass = getattr(mod, attr)
+                if isinstance(klass, type) and issubclass(klass, Plugin):
+                    self.log.info("%s: found plugin %s", pyPath, attr)
+                    plugin = klass(self)
+                    self.plugins.append(plugin)
+
+    def loadPlugins(self):
+
+        # scrape any plugins from the installer working directory
+        pat = os.path.join(self.im.installerConf.installer_dir, "plugins", "*.py")
+        for src in glob.glob(pat):
+            self.loadPluginsFromFile(src)
+
+        # scrape any plugins from the installer archive
+        pat = "plugins/*.py"
+        for basename in self.zf.namelist():
+            if not fnmatch.fnmatch(basename, pat): continue
+            try:
+                src = None
+                with self.zf.open(basename, "r") as rfd:
+                    wfno, src = tempfile.mkstemp(prefix="plugin-",
+                                                 suffix=".py")
+                    with os.fdopen(wfno, "w") as wfd:
+                        shutil.copyfileobj(rfd, wfd)
+                    self.loadPluginsFromFile(src)
+            finally:
+                if src and os.path.exists(src):
+                    os.unlink(src)
+
+        # scrape plugins from the loader runtime
+        # (any plugins dropped into $pydir/onl/install/plugins/*.py)
+        try:
+            import onl.install.plugins
+            plugindir = os.path.dirname(onl.install.plugins.__file__)
+        except ImportError:
+            plugindir = None
+        if plugindir:
+            pat = os.path.join(plugindir, "*.py")
+            for src in glob.glob(pat):
+                self.loadPluginsFromFile(src)
+
+        return 0
+
+    def runPlugins(self, mode):
+        self.log.info("running plugins: %s", mode)
+        for plugin in self.plugins:
+            try:
+                code = plugin.run(mode)
+            except:
+                self.log.exception("plugin failed")
+                code = 1
+            if code: return code
+        return 0
+
 GRUB_TPL = """\
 serial %(serial)s
 terminal_input serial
 terminal_output serial
 set timeout=5
 
+# Always boot the saved_entry value
+load_env
+if [ "${saved_entry}" ] ; then
+   set default="${saved_entry}"
+fi
+
 menuentry %(boot_menu_entry)s {
   search --no-floppy --label --set=root ONL-BOOT
+  # Always return to this entry by default.
+  set saved_entry="0"
+  save_env saved_entry
   echo 'Loading %(boot_loading_name)s ...'
   insmod gzio
   insmod part_msdos
@@ -411,11 +514,33 @@ menuentry %(boot_menu_entry)s {
   initrd /%(platform)s.cpio.gz
 }
 
-# Menu entry to chainload ONIE
-menuentry ONIE {
-  search --no-floppy --label --set=root ONIE-BOOT
+set onie_boot_label="ONIE-BOOT"
+set onie_boot_uuid="%(onie_boot_uuid)s"
+# filesystem UUID, *not* GPT partition GUID, *not* GPT partition unique GUID
+# (tee hee, GPT GRUB cannot grok partition attributes)
+
+function onie_boot_uefi {
+  set root='(hd0,gpt1)'
+  search --no-floppy --fs-uuid --set=root "${onie_boot_uuid}"
+  echo 'Loading ONIE ...'
+  chainloader /EFI/onie/grubx64.efi
+}
+
+function onie_boot_dos {
+  search --no-floppy --label --set=root "${onie_boot_label}"
+  set saved_entry="0"
+  save_env saved_entry
   echo 'Loading ONIE ...'
   chainloader +1
+}
+
+# Menu entry to chainload ONIE
+menuentry ONIE {
+  if [ -n "${onie_boot_uuid}" ]; then
+    onie_boot_uefi
+  else
+    onie_boot_dos
+  fi
 }
 """
 
@@ -427,6 +552,14 @@ class GrubInstaller(SubprocessMixin, Base):
 
     def __init__(self, *args, **kwargs):
         Base.__init__(self, *args, **kwargs)
+
+        self.espDevice = None
+        self.espFsUuid = None
+        # optionally fill in ESP partition information
+
+    @property
+    def isUEFI(self):
+        return os.path.isdir('/sys/firmware/efi/efivars')
 
     def findGpt(self):
         self.blkidParts = BlkidParser(log=self.log.getChild("blkid"))
@@ -465,8 +598,9 @@ class GrubInstaller(SubprocessMixin, Base):
             self.log.error("cannot find an install device")
             return 1
 
-        code = self.assertUnmounted()
-        if code: return code
+        if not self.isUEFI:
+            code = self.assertUnmounted()
+            if code: return code
 
         # optionally back up a config partition
         # if it's on the boot device
@@ -509,7 +643,76 @@ class GrubInstaller(SubprocessMixin, Base):
 
         return 0
 
+    def findEsp(self):
+        """Find the block device holding the EFI System Partition.
+
+        XXX assume boot (ESP) partition is on the same device as GRUB
+        """
+
+        self.log.info("extracting partition UUIDs for %s", self.device)
+
+        if isinstance(self.im.grubEnv, onl.install.ConfUtils.GrubEnv):
+            # direct (or chroot) access
+            gp = GdiskParser(self.device,
+                             subprocessContext=self.im.grubEnv,
+                             log=self.log)
+        else:
+            # indirect access using onie-shell
+            ctx = OnieSubprocess(log=self.log.getChild("onie"))
+            gp = GdiskParser(self.device,
+                             subprocessContext=ctx,
+                             log=self.log)
+
+        espParts = [x for x in gp.parts if x.isEsp]
+        if not espParts:
+            self.log.error("cannot find ESP partition on %s", self.device)
+            return 1
+        self.espDevice = espParts[0].device
+        self.log.info("found ESP partition %s", self.espDevice)
+
+        espParts = [x for x in self.blkidParts if x.device==self.espDevice]
+        if not espParts:
+            self.log.error("cannot find blkid entry for ESP partition on %s", self.espDevice)
+            return 1
+        self.espFsUuid = espParts[0].uuid
+        self.log.info("found ESP filesystem UUID %s", self.espFsUuid)
+
+        return 0
+
     def installLoader(self):
+
+        kernels = []
+        for f in set(os.listdir(self.im.installerConf.installer_dir) + self.zf.namelist()):
+            if 'kernel' in f:
+                kernels.append(f)
+
+        initrd = None
+        for f in set(os.listdir(self.im.installerConf.installer_dir) + self.zf.namelist()):
+            for i in sysconfig.installer.grub:
+                if f == i:
+                    initrd = i
+                    break
+
+        dev = self.blkidParts['ONL-BOOT']
+
+        self.log.info("Installing kernel to %s", dev.device)
+
+        with MountContext(dev.device, log=self.log) as ctx:
+            def _cp(b, dstname=None):
+                if dstname is None:
+                    dstname = b
+                dst = os.path.join(ctx.dir, dstname)
+                self.installerCopy(b, dst, optional=True)
+            [_cp(e) for e in kernels]
+            _cp(initrd, "%s.cpio.gz" % self.im.installerConf.installer_platform)
+
+        return 0
+
+    def installGrubCfg(self):
+
+        dev = self.blkidParts['ONL-BOOT']
+
+        self.log.info("Installing grub.cfg to %s", dev.device)
 
         ctx = {}
 
@@ -522,34 +725,20 @@ class GrubInstaller(SubprocessMixin, Base):
         ctx['boot_menu_entry'] = sysconfig.installer.menu_name
         ctx['boot_loading_name'] = sysconfig.installer.os_name
 
-        kernels = []
-
-        for f in set(os.listdir(self.im.installerConf.installer_dir) + self.zf.namelist()):
-            if 'kernel' in f:
-                kernels.append(f)
-
-        initrd = None
-        for f in set(os.listdir(self.im.installerConf.installer_dir) + self.zf.namelist()):
-            for i in sysconfig.installer.grub:
-                if f == i:
-                    initrd = i
-                    break
+        if self.isUEFI:
+            if not self.espFsUuid:
+                self.log.error("cannnot find ESP UUID")
+                return 1
+            ctx['onie_boot_uuid'] = self.espFsUuid
+        else:
+            ctx['onie_boot_uuid'] = ""
 
         cf = GRUB_TPL % ctx
 
-        self.log.info("Installing kernel")
-        dev = self.blkidParts['ONL-BOOT']
-
         with MountContext(dev.device, log=self.log) as ctx:
-            def _cp(b, dstname=None):
-                if dstname is None:
-                    dstname = b
-                dst = os.path.join(ctx.dir, dstname)
-                self.installerCopy(b, dst, optional=True)
-            [_cp(e) for e in kernels]
-            _cp(initrd, "%s.cpio.gz" % self.im.installerConf.installer_platform)
             d = os.path.join(ctx.dir, "grub")
-            self.makedirs(d)
+            if not os.path.exists(d):
+                self.makedirs(d)
             dst = os.path.join(ctx.dir, 'grub/grub.cfg')
             with open(dst, "w") as fd:
                 fd.write(cf)
@@ -563,8 +752,26 @@ class GrubInstaller(SubprocessMixin, Base):
 
     def installGpt(self):
 
+        # get a handle to the installer zip
+        p = os.path.join(self.im.installerConf.installer_dir,
+                         self.im.installerConf.installer_zip)
+        self.zf = zipfile.ZipFile(p)
+
+        code = self.loadPlugins()
+        if code: return code
+
+        code = self.runPlugins(Plugin.PLUGIN_PREINSTALL)
+        if code: return code
+
         code = self.findGpt()
         if code: return code
+
+        if self.isUEFI:
+            code = self.findEsp()
+            if code: return code
+            self.im.grubEnv.__dict__['espPart'] = self.espDevice
+        else:
+            self.im.grubEnv.__dict__['espPart'] = None
 
         self.log.info("Installing to %s starting at partition %d",
                       self.device, self.minpart)
@@ -600,15 +807,13 @@ class GrubInstaller(SubprocessMixin, Base):
         self.im.grubEnv.__dict__['bootPart'] = dev.device
         self.im.grubEnv.__dict__['bootDir'] = None
 
-        # get a handle to the installer zip
-        p = os.path.join(self.im.installerConf.installer_dir,
-                         self.im.installerConf.installer_zip)
-        self.zf = zipfile.ZipFile(p)
-
         code = self.installSwi()
         if code: return code
 
         code = self.installLoader()
+        if code: return code
+
+        code = self.installGrubCfg()
         if code: return code
 
         code = self.installBootConfig()
@@ -618,6 +823,9 @@ class GrubInstaller(SubprocessMixin, Base):
         if code: return code
 
         code = self.installGrub()
+        if code: return code
+
+        code = self.runPlugins(Plugin.PLUGIN_POSTINSTALL)
         if code: return code
 
         self.log.info("ONL loader install successful.")
@@ -633,12 +841,229 @@ class GrubInstaller(SubprocessMixin, Base):
         if label != 'gpt':
             self.log.error("invalid GRUB label in platform config: %s", label)
             return 1
+
         return self.installGpt()
+
+    def upgradeBootLoader(self):
+        """Upgrade the boot loader settings."""
+
+        self.blkidParts = BlkidParser(log=self.log.getChild("blkid"))
+
+        code = self.findGpt()
+        if code: return code
+
+        if self.isUEFI:
+            code = self.findEsp()
+            if code: return code
+            self.im.grubEnv.__dict__['espPart'] = self.espDevice
+        else:
+            self.im.grubEnv.__dict__['espPart'] = None
+
+        code = self.installGrubCfg()
+        if code: return code
+
+        return 0
 
     def shutdown(self):
         Base.shutdown(self)
 
-class UbootInstaller(SubprocessMixin, Base):
+class UBIfsCreater(SubprocessMixin, Base):
+    
+    def __init__(self, *args, **kwargs):
+        Base.__init__(self, *args, **kwargs)
+        self.log = logging.getLogger("ubinfo -a")
+        self.device = self.im.getDevice()
+        self.ubiParts = None
+    """Set up an UBI file system."""
+
+    def ubifsinit(self):
+        UNITS = {
+            'GiB' : 1024 * 1024 * 1024,
+            'G' : 1000 * 1000 * 1000,
+            'MiB' : 1024 * 1024,
+            'M' : 1000 * 1000,
+            'KiB' : 1024,
+            'K' : 1000,
+        }
+        try:
+            code = 0
+            if not code:
+                mtd_num = self.device[-1]
+                cmd = ('ubiformat', '/dev/mtd' + mtd_num)
+                self.check_call(cmd, vmode=self.V2)
+                cmd = ('ubiattach', '-m', mtd_num, '-d', '0', '/dev/ubi_ctrl',)
+                self.check_call(cmd, vmode=self.V2)
+                for part in self.im.platformConf['installer']:
+                    label, partData = list(part.items())[0]
+                    if type(partData) == dict:
+                        sz, fmt = partData['='], partData.get('format', 'ubifs')
+                    else:
+                        sz, fmt = partData, 'ubifs'
+                    cnt = None
+                    for ul, ub in UNITS.items():
+                        if sz.endswith(ul):
+                            cnt = int(sz[:-len(ul)], 10) * ub
+                            break
+                    if cnt is None:
+                        self.log.error("invalid size (no units) for %s: %s",part, sz)
+                        return 1
+                    label = label.strip()
+                    cmd = ('ubimkvol', '/dev/ubi0', '-N', label, '-s', bytes(cnt),)
+                    self.check_call(cmd, vmode=self.V2)
+        except Exception:
+            self.log.exception("cannot create UBI file systemfrom %s",self.device)
+
+        return 0
+
+    def ubi_mount(self, dir, devpart):
+        
+        if devpart is None:
+            self.log.error("Mount failed.no given mount device part")
+            return 1
+        if dir is None:
+            self.log.error("Mount failed.no given mount directory")
+            return 1
+        if self.ubiParts is None:
+            try:
+                self.ubiParts = UbinfoParser(log=self.log.getChild("ubinfo -a"))
+            except Exception:
+                self.log.exception("Mount failed.No UBIfs")
+                return 1
+        try:
+            dev = self.ubiParts[devpart]
+        except IndexError as ex:
+            self.log.error("Mount failed.cannot find %s partition", str(devpart))
+            return 1
+        self.makedirs(dir)
+        device = "/dev/" + dev['device'] + "_" + dev['Volume ID']
+        if dev['fsType']:
+            cmd = ('mount', '-t', dev['fsType'], device, dir,)
+        else:
+            cmd = ('mount', device, dir,)
+        code = self.check_call(cmd, vmode=self.V2)
+        if code:
+            self.log.error("Mount failed.mount command exect failed")
+            return 1
+        return 0
+
+    def ubi_unmount(self,dir=None):
+
+        if dir is None:
+            self.log.error("Unmount failed.no given unmount directory")
+            return 1
+        cmd = ('umount', dir)
+        code = self.check_call(cmd, vmode=self.V2)
+        if code:
+            self.log.error("Unmount failed.umount command exect failed")
+            return 1
+        return 0
+        
+    def ubi_getinfo(self):
+        try:
+            self.ubiParts = UbinfoParser(log=self.log.getChild("ubinfo -a"))
+        except Exception:
+            self.log.exception("UBI info get failed.No UBIfs")
+            return 1
+        return 0
+
+    def ubi_installSwi(self):
+        
+        files = os.listdir(self.im.installerConf.installer_dir) + self.zf.namelist()
+
+        swis = [x for x in files if x.endswith('.swi')]
+
+        if not swis:
+            self.log.warn("No ONL Software Image available for ubi installation.")
+            self.log.warn("Post-install ZTN installation will be required.")
+
+        if len(swis) > 1:
+            self.log.error("Multiple SWIs found in ubi installer: %s", " ".join(swis))
+            return 1
+
+        base = swis[0]
+        
+        self.log.info("Installing ONL Software Image (%s)...", base)
+        dev = "ONL-IMAGES"
+        dstDir = "/tmp/ubifs"
+        code = self.ubi_mount(dstDir,dev)
+        if code :
+            return 1
+        dst = os.path.join(dstDir, base)
+        self.installerCopy(base, dst)
+        self.log.info("syncing block devices(%s)...",dev)
+        self.check_call(('sync',))
+        self.ubi_unmount(dstDir)
+        return 0
+    
+    def ubi_installLoader(self):
+        
+        loaderBasename = None
+        for c in sysconfig.installer.fit:
+            if self.installerExists(c):
+                loaderBasename = c
+                break
+        if not loaderBasename:
+            self.log.error("The platform loader file is missing.")
+            return 1
+
+        self.log.info("Installing the ONL loader from %s...", loaderBasename)
+        dev = "ONL-BOOT"
+        dstDir = "/tmp/ubiloader"
+        code = self.ubi_mount(dstDir,dev)
+        if code :
+            return 1
+        dst = os.path.join(dstDir, "%s.itb" % self.im.installerConf.installer_platform)
+        self.installerCopy(loaderBasename, dst)
+        self.log.info("syncing block devices(%s)...",dev)
+        self.check_call(('sync',))
+        self.ubi_unmount(dstDir)
+        return 0
+
+    def ubi_installBootConfig(self):
+        
+        basename = 'boot-config'
+
+        self.log.info("Installing boot-config to ONL-BOOT partion")
+        dev = "ONL-BOOT"
+        dstDir = "/tmp/ubibootcon"
+        code = self.ubi_mount(dstDir,dev)
+        if code :
+            return 1
+        dst = os.path.join(dstDir, basename)
+        self.installerCopy(basename, dst, True)
+        with open(dst) as fd:
+            buf = fd.read()
+        ecf = buf.encode('base64', 'strict').strip()
+        if self.im.grub and self.im.grubEnv is not None:
+            setattr(self.im.grubEnv, 'boot_config_default', ecf)
+        if self.im.uboot and self.im.ubootEnv is not None:
+            setattr(self.im.ubootEnv, 'boot-config-default', ecf)
+        self.log.info("syncing block devices(%s)...",dev)
+        self.check_call(('sync',))
+        self.ubi_unmount(dstDir)
+        return 0
+
+    def ubi_installOnlConfig(self):
+        
+        self.log.info("Installing onl-config to ONL-CONFIG partion")
+        dev = "ONL-CONFIG"
+        dstDir = "/tmp/ubionlconfig"
+        code = self.ubi_mount(dstDir,dev)
+        if code :
+            return 1
+        for f in self.zf.namelist():
+            d = 'config/'
+            if f.startswith(d) and f != d:
+                dst = os.path.join(dstDir, os.path.basename(f))
+                if not os.path.exists(dst):
+                    self.installerCopy(f, dst)
+        self.log.info("syncing block devices(%s)...",dev)
+        self.check_call(('sync',))
+        self.ubi_unmount(dstDir)
+        return 0     
+
+
+class UbootInstaller(SubprocessMixin, UBIfsCreater):
 
     class installmeta(Base.installmeta):
 
@@ -659,17 +1084,17 @@ class UbootInstaller(SubprocessMixin, Base):
             cmds.append("setenv onl_itb %s" % itb)
             for item in self.platformConf['loader']['setenv']:
                 k, v = list(item.items())[0]
-                cmds.append("setenv %s %s" % (k, v,))
+                device = self.getDevice()
+                if "mtdblock" in device:
+                    cmds.append("setenv %s %s ${platformargs} ubi.mtd=%s root=/dev/ram ethaddr=$ethaddr" % (k, v, device[-1],))
+                else:
+                    cmds.append("setenv %s %s" % (k, v,))
             cmds.extend(self.platformConf['loader']['nos_bootcmds'])
             return "; ".join(cmds)
 
     def __init__(self, *args, **kwargs):
-        Base.__init__(self, *args, **kwargs)
-
+        UBIfsCreater.__init__(self, *args, **kwargs)
         self.device = self.im.getDevice()
-
-        code = self.assertUnmounted()
-        if code: return code
 
         self.rawLoaderDevice = None
         # set to a partition device for raw loader install,
@@ -686,11 +1111,17 @@ class UbootInstaller(SubprocessMixin, Base):
                 return 0
             self.log.warn("disk %s has wrong label %s",
                           self.device, self.partedDisk.type)
-        except Exception as ex:
+        except (DiskException, PartedException) as ex:
             self.log.error("cannot get partition table from %s: %s",
                            self.device, str(ex))
+        except Exception:
+            self.log.exception("cannot get partition table from %s",
+                               self.device)
 
-        self.log.info("creating msdos label on %s")
+        self.log.info("clobbering disk label on %s", self.device)
+        self.partedDevice.clobber()
+
+        self.log.info("creating msdos label on %s", self.device)
         self.partedDisk = parted.freshDisk(self.partedDevice, 'msdos')
 
         return 0
@@ -783,6 +1214,38 @@ class UbootInstaller(SubprocessMixin, Base):
             self.log.error("not a block device: %s", self.device)
             return 1
 
+        # get a handle to the installer zip
+        p = os.path.join(self.im.installerConf.installer_dir,
+                         self.im.installerConf.installer_zip)
+        self.zf = zipfile.ZipFile(p)
+
+        code = self.loadPlugins()
+        if code: return code
+
+        code = self.runPlugins(Plugin.PLUGIN_PREINSTALL)
+        if code: return code
+
+        code = self.assertUnmounted()
+        if code: return code
+        
+        if "mtdblock" in self.device:
+            code = self.ubifsinit()
+            if code: return code
+            code = self.ubi_getinfo()
+            if code: return code
+            code = self.ubi_installSwi()
+            if code: return code
+            code = self.ubi_installLoader()
+            if code: return code
+            code = self.ubi_installBootConfig()
+            if code: return code
+            code = self.ubi_installOnlConfig()
+            if code: return code
+            code = self.runPlugins(Plugin.PLUGIN_POSTINSTALL)
+            if code: return code
+            code = self.installUbootEnv()
+            return code
+
         code = self.maybeCreateLabel()
         if code: return code
 
@@ -803,6 +1266,7 @@ class UbootInstaller(SubprocessMixin, Base):
         self.log.info("found a disk with %d blocks",
                       self.partedDevice.getLength())
 
+        self.blkidParts = BlkidParser(log=self.log.getChild("blkid"))
         code = self.findMsdos()
         if code: return code
 
@@ -824,11 +1288,6 @@ class UbootInstaller(SubprocessMixin, Base):
             if label == 'ONL-BOOT' and part['format'] == 'raw':
                 self.rawLoaderDevice = self.device + str(partIdx+1)
                 break
-
-        # get a handle to the installer zip
-        p = os.path.join(self.im.installerConf.installer_dir,
-                         self.im.installerConf.installer_zip)
-        self.zf = zipfile.ZipFile(p)
 
         code = self.installSwi()
         if code: return code
@@ -854,6 +1313,9 @@ class UbootInstaller(SubprocessMixin, Base):
         code = self.installUbootEnv()
         if code: return code
 
+        code = self.runPlugins(Plugin.PLUGIN_POSTINSTALL)
+        if code: return code
+
         return 0
 
     def run(self):
@@ -863,6 +1325,18 @@ class UbootInstaller(SubprocessMixin, Base):
             return 1
 
         return self.installUboot()
+
+    def upgradeBootLoader(self):
+        """Upgrade the boot loader settings as part of a loader upgrade."""
+
+        self.blkidParts = BlkidParser(log=self.log.getChild("blkid"))
+
+        # XXX boot-config (and saved boot-config) should be unchanged during loader upgrade
+
+        code = self.installUbootEnv()
+        if code: return code
+
+        return 0
 
     def shutdown(self):
         Base.shutdown(self)

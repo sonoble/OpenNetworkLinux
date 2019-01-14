@@ -19,6 +19,7 @@ import zipfile
 import onl.install.InstallUtils
 MountContext = onl.install.InstallUtils.MountContext
 BlkidParser = onl.install.InstallUtils.BlkidParser
+UbinfoParser = onl.install.InstallUtils.UbinfoParser
 ProcMountsParser = onl.install.InstallUtils.ProcMountsParser
 
 import onl.mounts
@@ -221,7 +222,7 @@ class Runner(onl.install.InstallUtils.SubprocessMixin):
 
         blkid = BlkidParser(log=self.log)
 
-        if ':' in SWI:
+        if not SWI.startswith('/') and ':' in SWI:
             devspec, sep, r = SWI.partition(':')
 
             p = "/dev/%s" % devspec
@@ -247,6 +248,14 @@ class Runner(onl.install.InstallUtils.SubprocessMixin):
                     part = blkid[label]
                 except IndexError:
                     part = None
+                if part is None:
+                    ubinfo = UbinfoParser(log=self.log)
+                    part = {}
+                    part = ubinfo[label]
+                    device = "/dev/" + part['device'] + "_" + part['Volume ID']
+                    
+                    return self.blockdevCopy(device, r, dir=mpt)
+
                 if part is not None:
                     return self.blockdevCopy(part.device, r, dir=mpt)
 
@@ -284,7 +293,7 @@ class Runner(onl.install.InstallUtils.SubprocessMixin):
             l = [x for x in os.listdir(d) if x.endswith('.swi')]
             l = [os.path.join(d, x) for x in l]
             l.sort(key=swiSortKey)
-            return l[-1]
+            return l[-1] if l else None
 
         pm = ProcMountsParser()
         parts = [x for x in pm.mounts if x.device == dev]
@@ -294,6 +303,9 @@ class Runner(onl.install.InstallUtils.SubprocessMixin):
                 self.log.info("found 'latest' swi %s", dst)
             else:
                 dst = os.path.join(parts[0].dir, src)
+            if dst is None:
+                self.log.error("missing SWI")
+                return None
             if not os.path.exists(dst):
                 self.log.error("missing SWI: %s", dst)
                 return None

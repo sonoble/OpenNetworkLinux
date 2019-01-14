@@ -23,6 +23,8 @@
  *
  *
  ***********************************************************/
+#include <onlp/onlp.h>
+#include <onlplib/file.h>
 #include <sys/mman.h>
 #include <errno.h>
 #include <string.h>
@@ -66,7 +68,7 @@ int deviceNodeWriteInt(char *filename, int value, int data_len)
     char buf[8] = {0};
     sprintf(buf, "%d", value);
 
-    return deviceNodeWrite(filename, buf, sizeof(buf)-1, data_len);
+    return deviceNodeWrite(filename, buf, (int)strlen(buf), data_len);
 }
 
 int deviceNodeReadBinary(char *filename, char *buffer, int buf_size, int data_len)
@@ -115,9 +117,9 @@ int deviceNodeReadString(char *filename, char *buffer, int buf_size, int data_le
     return ret;
 }
 
-#define I2C_PSU_MODEL_NAME_LEN 9
+#define I2C_PSU_MODEL_NAME_LEN 11
 #define I2C_PSU_FAN_DIR_LEN    3
-
+#include <ctype.h>
 psu_type_t get_psu_type(int id, char* modelname, int modelname_len)
 {
     char *node = NULL;
@@ -131,27 +133,95 @@ psu_type_t get_psu_type(int id, char* modelname, int modelname_len)
         return PSU_TYPE_UNKNOWN;
     }
 
-    if (strncmp(model_name, "YM-2651Y", strlen("YM-2651Y")) != 0) {
-        return PSU_TYPE_UNKNOWN;
+    if(isspace(model_name[strlen(model_name)-1])) {
+        model_name[strlen(model_name)-1] = 0;
     }
 
-    if (modelname) {
-        strncpy(modelname, model_name, modelname_len-1);
+    if (strncmp(model_name, "YM-2651Y", 8) == 0) {
+	    if (modelname) {
+			strncpy(modelname, model_name, 8);
+	    }
+
+	    node = (id == PSU1_ID) ? PSU1_AC_PMBUS_NODE(psu_fan_dir) : PSU2_AC_PMBUS_NODE(psu_fan_dir);
+	    if (deviceNodeReadString(node, fan_dir, sizeof(fan_dir), 0) != 0) {
+	        return PSU_TYPE_UNKNOWN;
+	    }
+
+	    if (strncmp(fan_dir, "F2B", strlen("F2B")) == 0) {
+	        return PSU_TYPE_AC_F2B;
+	    }
+
+	    if (strncmp(fan_dir, "B2F", strlen("B2F")) == 0) {
+	        return PSU_TYPE_AC_B2F;
+	    }
     }
 
-    node = (id == PSU1_ID) ? PSU1_AC_PMBUS_NODE(psu_fan_dir) : PSU2_AC_PMBUS_NODE(psu_fan_dir);
+    if (strncmp(model_name, "YM-2651V", 8) == 0) {
+	    if (modelname) {
+			strncpy(modelname, model_name, 8);
+	    }
 
-    if (deviceNodeReadString(node, fan_dir, sizeof(fan_dir), 0) != 0) {
-        return PSU_TYPE_UNKNOWN;
+	    node = (id == PSU1_ID) ? PSU1_AC_PMBUS_NODE(psu_fan_dir) : PSU2_AC_PMBUS_NODE(psu_fan_dir);
+	    if (deviceNodeReadString(node, fan_dir, sizeof(fan_dir), 0) != 0) {
+	        return PSU_TYPE_UNKNOWN;
+	    }
+
+	    if (strncmp(fan_dir, "F2B", strlen("F2B")) == 0) {
+	        return PSU_TYPE_DC_48V_F2B;
+	    }
+
+	    if (strncmp(fan_dir, "B2F", strlen("B2F")) == 0) {
+	        return PSU_TYPE_DC_48V_B2F;
+	    }
     }
 
-    if (strncmp(fan_dir, "F2B", strlen("F2B")) == 0) {
-        return PSU_TYPE_AC_F2B;
-    }
+	if (strncmp(model_name, "PSU-12V-750", 11) == 0) {
+	    if (modelname) {
+			strncpy(modelname, model_name, 11);
+	    }
 
-    if (strncmp(fan_dir, "B2F", strlen("B2F")) == 0) {
-        return PSU_TYPE_AC_B2F;
-    }
+	    node = (id == PSU1_ID) ? PSU1_AC_HWMON_NODE(psu_fan_dir) : PSU2_AC_HWMON_NODE(psu_fan_dir);
+	    if (deviceNodeReadString(node, fan_dir, sizeof(fan_dir), 0) != 0) {
+	        return PSU_TYPE_UNKNOWN;
+	    }
+
+	    if (strncmp(fan_dir, "F2B", 3) == 0) {
+	        return PSU_TYPE_DC_12V_F2B;
+	    }
+
+	    if (strncmp(fan_dir, "B2F", 3) == 0) {
+	        return PSU_TYPE_DC_12V_B2F;
+	    }
+
+	    if (strncmp(fan_dir, "NON", 3) == 0) {
+	        return PSU_TYPE_DC_12V_FANLESS;
+	    }
+	}
 
     return PSU_TYPE_UNKNOWN;
 }
+
+#define PSU_SERIAL_NUMBER_LEN	18
+
+int psu_serial_number_get(int id, char *serial, int serial_len)
+{
+	int   size = 0;
+	int   ret  = ONLP_STATUS_OK; 
+	char *prefix = NULL;
+
+	if (serial == NULL || serial_len < PSU_SERIAL_NUMBER_LEN) {
+		return ONLP_STATUS_E_PARAM;
+	}
+
+	prefix = (id == PSU1_ID) ? PSU1_AC_PMBUS_PREFIX : PSU2_AC_PMBUS_PREFIX;
+
+	ret = onlp_file_read((uint8_t*)serial, PSU_SERIAL_NUMBER_LEN, &size, "%s%s", prefix, "psu_mfr_serial");
+    if (ret != ONLP_STATUS_OK || size != PSU_SERIAL_NUMBER_LEN) {
+		return ONLP_STATUS_E_INTERNAL;
+
+    }
+
+	serial[PSU_SERIAL_NUMBER_LEN] = '\0';
+	return ONLP_STATUS_OK;
+}
+

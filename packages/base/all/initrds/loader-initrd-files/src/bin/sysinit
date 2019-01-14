@@ -35,6 +35,10 @@ trap "restoreconsole; reboot -f" EXIT
 # Mount special filesystems
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
+if [ -d /sys/firmware/efi/efivars ]; then
+    modprobe efivarfs || :
+    mount -t efivarfs efivarfs /sys/firmware/efi/efivars
+fi
 mount -o remount,size=1M /dev
 case "$(stat -f -c "%T" /tmp)" in
   tmpfs|ramfs) ;;
@@ -43,8 +47,10 @@ case "$(stat -f -c "%T" /tmp)" in
     ;;
 esac
 
-# Grab cmdline settings
+# Initialize RNG early
+python /bin/initrng.py
 
+# Grab cmdline settings
 touch /etc/onl/boot-config
 tr -s " " "\n" </proc/cmdline |
 while read -r l; do
@@ -90,6 +96,7 @@ if [ ! -f /etc/onl/abort ]; then
     elif [ -f /etc/onl/boot-config-default ]; then
         # Use default boot-config.
         cp /etc/onl/boot-config-default /etc/onl/boot-config
+        cp /etc/onl/boot-config-default /mnt/onl/boot/boot-config
     fi
 fi
 
@@ -143,4 +150,5 @@ trap - EXIT
 
 # Local variables:
 # sh-basic-offset: 4
+# sh-indentation: 4
 # End:

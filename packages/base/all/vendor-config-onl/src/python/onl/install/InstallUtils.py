@@ -9,6 +9,9 @@ import subprocess
 import tempfile
 import string
 import shutil
+import re
+
+import Fit, Legacy
 
 class SubprocessMixin:
 
@@ -104,7 +107,10 @@ class SubprocessMixin:
                     sys.stderr.write(fd.read())
                 os.unlink(v2Out)
         else:
-            return subprocess.check_output(cmd, *args, cwd=cwd, **kwargs)
+            try:
+                return subprocess.check_output(cmd, *args, cwd=cwd, **kwargs)
+            except subprocess.CalledProcessError:
+                return ''
 
     def rmdir(self, path):
         self.log.debug("+ /bin/rmdir %s", path)
@@ -177,6 +183,25 @@ class SubprocessMixin:
         # don't believe it
         self.check_call(cmd, vmode=self.V1)
 
+    def cpR(self, srcRoot, dstRoot):
+        srcRoot = os.path.abspath(srcRoot)
+        dstRoot = os.path.abspath(dstRoot)
+        dstRoot = os.path.join(dstRoot, os.path.split(srcRoot)[1])
+        for r, dl, fl in os.walk(srcRoot):
+
+            for de in dl:
+                src = os.path.join(r, de)
+                subdir = src[len(srcRoot)+1:]
+                dst = os.path.join(dstRoot, subdir)
+                if not os.path.exists(dst):
+                    self.makedirs(dst)
+
+            for fe in fl:
+                src = os.path.join(r, fe)
+                subdir = src[len(srcRoot)+1:]
+                dst = os.path.join(dstRoot, subdir)
+                self.copy2(src, dst)
+
 class TempdirContext(SubprocessMixin):
 
     def __init__(self, prefix=None, suffix=None, chroot=None, log=None):
@@ -210,8 +235,8 @@ class MountContext(SubprocessMixin):
         self.label = label
         self.fsType = fsType
         self.dir = None
-        self.hostDir = None
-        self.mounted = False
+        self.hostDir = self.__hostDir = None
+        self.mounted = self.__mounted = False
         self.log = log or logging.getLogger("mount")
 
         if self.device and self.label:
@@ -245,7 +270,7 @@ class MountContext(SubprocessMixin):
         self.mounted = True
         return self
 
-    def __exit__(self, type, value, tb):
+    def shutdown(self):
 
         mounted = False
         if self.mounted:
@@ -263,7 +288,17 @@ class MountContext(SubprocessMixin):
         if self.hostDir is not None:
             self.rmdir(self.hostDir)
 
+    def __exit__(self, type, value, tb):
+        self.shutdown()
         return False
+
+    def detach(self):
+        self.__mounted, self.mounted = self.mounted, False
+        self.__hostDir, self.hostDir = self.hostDir, None
+
+    def attach(self):
+        self.mounted = self.__mounted
+        self.hostDir = self.__hostDir
 
 class BlkidEntry:
 
@@ -348,6 +383,63 @@ class BlkidParser(SubprocessMixin):
         for part in self.parts:
             if part.label == idxOrName: return part
             if part.uuid == idxOrName: return part
+        raise IndexError("cannot find partition %s" % repr(idxOrName))
+
+    def __len__(self):
+        return len(self.parts)
+
+class UbinfoParser(SubprocessMixin):
+
+    def __init__(self, log=None):
+        self.log = log or logging.getLogger("ubinfo -a")
+        self.parse()
+
+    def parse(self):
+        self.parts = []
+        lines = ''
+        try:
+            cmd = ('ubinfo', '-a',)
+            lines = self.check_output(cmd).splitlines()
+        except Exception as ex:
+            return self
+
+        dev = None
+        volId = None
+        name = None
+        attrs = {}
+        for line in lines:
+            line = line.strip()
+
+            p = line.find(':')
+            if p < 0: continue
+            name, value = line[:p], line[p+1:].strip()
+            if 'Volume ID' in name:
+                p = value.find('(')
+                if p < 0: continue
+                volumeId = value[:p].strip()
+                attrs['Volume ID'] = volumeId
+                p = value.find('on')
+                if p < 0: continue
+                dev = value[p+2:-1].strip()
+                attrs['device'] = dev
+
+            if 'Name' in name:
+               dev = "/dev/" + dev + "_" + volumeId
+               p = line.find(':')
+               if p < 0: continue
+               attrs['Name'] = line[p+1:].strip()
+               attrs['fsType'] = 'ubifs'
+               self.parts.append(attrs)
+               dev = None
+               volId = None
+               name = None
+               attrs = {}
+
+    def __getitem__(self, idxOrName):
+        if type(idxOrName) == int:
+            return self.parts[idxOrName]
+        for part in self.parts:
+            if part['Name'] == idxOrName: return part
         raise IndexError("cannot find partition %s" % repr(idxOrName))
 
     def __len__(self):
@@ -586,6 +678,186 @@ class PartedParser(SubprocessMixin):
     def __len__(self):
         return len(self.parts)
 
+class GdiskDiskEntry:
+
+    DEVICE_RE = re.compile("Disk ([^:]*): .*")
+    BLOCKS_RE = re.compile("Disk [^:]*: ([0-9][0-9]*) sectors")
+    LBSZ_RE = re.compile("Logical sector size: ([0-9][0-9]*) bytes")
+    GUID_RE = re.compile("Disk identifier [(]GUID[)]: ([0-9a-fA-F-][0-9a-fA-F-]*)")
+
+    def __init__(self, device, blocks, lbsz, guid):
+        self.device = device
+
+        self.blocks = blocks
+        self.lbsz = lbsz
+        self.guid = guid
+
+    @classmethod
+    def fromOutput(cls, buf):
+
+        m = cls.BLOCKS_RE.search(buf)
+        if m:
+            blocks = int(m.group(1))
+        else:
+            raise ValueError("cannot get block count")
+
+        m = cls.DEVICE_RE.search(buf)
+        if m:
+            device = m.group(1)
+        else:
+            raise ValueError("cannot get block count")
+
+        m = cls.LBSZ_RE.search(buf)
+        if m:
+            lbsz = int(m.group(1))
+        else:
+            raise ValueError("cannot get block size")
+
+        m = cls.GUID_RE.search(buf)
+        if m:
+            guid = m.group(1)
+        else:
+            raise ValueError("cannot get block size")
+
+        return cls(device, blocks, lbsz, guid)
+
+class GdiskPartEntry:
+
+    PGUID_RE = re.compile("Partition GUID code: ([0-9a-fA-F-][0-9a-fA-F-]*) [(]([^)]*)[)]")
+    PGUID2_RE = re.compile("Partition GUID code: ([0-9a-fA-F-][0-9a-fA-F-]*)")
+    GUID_RE = re.compile("Partition unique GUID: ([0-9a-fA-F-][0-9a-fA-F-]*)")
+    START_RE = re.compile("First sector: ([0-9][0-9]*)")
+    END_RE = re.compile("Last sector: ([0-9][0-9]*)")
+    SIZE_RE = re.compile("Partition size: ([0-9][0-9]*) sectors")
+    NAME_RE = re.compile("Partition name: [']([^']+)[']")
+
+    ESP_PGUID = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
+    GRUB_PGUID = "21686148-6449-6e6f-744e-656564454649"
+    ONIE_PGUID = "7412f7d5-a156-4b13-81dc-867174929325"
+
+    def __init__(self, device, pguid, guid, start, end, sz, pguidName=None, name=None):
+        self.device = device
+        self.pguid = pguid
+        self.pguidName = pguidName
+        self.guid = guid
+        self.name = name
+        self.start = start
+        self.end = end
+        self.sz = sz
+
+    @property
+    def isEsp(self):
+        return self.pguid == self.ESP_PGUID
+
+    @property
+    def isGrub(self):
+        return self.pguid == self.GRUB_PGUID
+
+    @property
+    def isOnie(self):
+        return self.pguid == self.ONIE_PGUID
+
+    @classmethod
+    def fromOutput(cls, partDevice, buf):
+
+        m = cls.PGUID_RE.search(buf)
+        if m:
+            pguid = m.group(1).lower()
+            pguidName = m.group(2)
+        else:
+            m = cls.PGUID2_RE.search(buf)
+            if m:
+                pguid = m.group(1).lower()
+                pguidName = None
+            else:
+                raise ValueError("cannot get partition GUID")
+
+        m = cls.GUID_RE.search(buf)
+        if m:
+            guid = m.group(1).lower()
+        else:
+            raise ValueError("cannot get partition unique GUID")
+
+        m = cls.START_RE.search(buf)
+        if m:
+            start = int(m.group(1))
+        else:
+            raise ValueError("cannot get partition start")
+
+        m = cls.END_RE.search(buf)
+        if m:
+            end = int(m.group(1))
+        else:
+            raise ValueError("cannot get partition end")
+
+        m = cls.SIZE_RE.search(buf)
+        if m:
+            sz = int(m.group(1))
+        else:
+            raise ValueError("cannot get partition size")
+
+        m = cls.NAME_RE.search(buf)
+        if m:
+            name = m.group(1)
+        else:
+            name = None
+
+        return cls(partDevice,
+                   pguid, guid, start, end, sz,
+                   pguidName=pguidName,
+                   name=name)
+
+class GdiskParser(SubprocessMixin):
+
+    def __init__(self, device, subprocessContext=subprocess, log=None):
+        self.device = device
+        self.log = log or logging.getLogger("parted")
+        self.subprocessContext = subprocessContext
+        self.parse()
+
+    def parse(self):
+
+        cmd = ('sgdisk', '-p', self.device,)
+        buf = self.subprocessContext.check_output(cmd)
+        self.disk = GdiskDiskEntry.fromOutput(buf)
+
+        parts = {}
+        pidx = 1
+        for line in buf.splitlines():
+
+            line = line.strip()
+            if not line: continue
+            if not line[0] in string.digits: continue
+
+            partno = int(line.split()[0])
+
+            partDevice = "%s%d" % (self.device, pidx,)
+            pidx += 1
+            # linux partitions may be numbered differently,
+            # if there are holes in the GPT partition table
+
+            cmd = ('sgdisk', '-i', str(partno), self.device,)
+            try:
+                buf = self.subprocessContext.check_output(cmd)
+            except subprocess.CalledProcessError as ex:
+                sys.stdout.write(ex.output)
+                self.log.warn("sgdisk failed with code %s", ex.returncode)
+                continue
+                # skip this partition, but otherwise do not give up
+
+            ent = GdiskPartEntry.fromOutput(partDevice, buf)
+            parts[partno] = ent
+
+        self.parts = []
+        for partno in sorted(parts.keys()):
+            self.parts.append(parts[partno])
+
+        if self.disk is None:
+            raise ValueError("no partition table found")
+
+    def __len__(self):
+        return len(self.parts)
+
 class ProcMountsEntry:
 
     def __init__(self, device, dir, fsType, flags={}):
@@ -665,6 +937,10 @@ class InitrdContext(SubprocessMixin):
         self.ilog.setLevel(logging.INFO)
         self.log = self.hlog
 
+        self.__initrd = None
+        self.__dir = None
+        self._hasDevTmpfs = False
+
     def _unpack(self):
         self.dir = self.mkdtemp(prefix="chroot-",
                                 suffix=".d")
@@ -724,27 +1000,28 @@ class InitrdContext(SubprocessMixin):
             else:
                 self.unlink(dst)
 
-        for e in os.listdir("/dev"):
-            src = os.path.join("/dev", e)
-            dst = os.path.join(dev2, e)
-            if os.path.islink(src):
-                self.symlink(os.readlink(src), dst)
-            elif os.path.isdir(src):
-                self.mkdir(dst)
-            elif os.path.isfile(src):
-                self.copy2(src, dst)
-            else:
-                st = os.stat(src)
-                if stat.S_ISBLK(st.st_mode):
-                    maj, min = os.major(st.st_rdev), os.minor(st.st_rdev)
-                    self.log.debug("+ mknod %s b %d %d", dst, maj, min)
-                    os.mknod(dst, st.st_mode, st.st_rdev)
-                elif stat.S_ISCHR(st.st_mode):
-                    maj, min = os.major(st.st_rdev), os.minor(st.st_rdev)
-                    self.log.debug("+ mknod %s c %d %d", dst, maj, min)
-                    os.mknod(dst, st.st_mode, st.st_rdev)
+        if not self._hasDevTmpfs:
+            for e in os.listdir("/dev"):
+                src = os.path.join("/dev", e)
+                dst = os.path.join(dev2, e)
+                if os.path.islink(src):
+                    self.symlink(os.readlink(src), dst)
+                elif os.path.isdir(src):
+                    self.mkdir(dst)
+                elif os.path.isfile(src):
+                    self.copy2(src, dst)
                 else:
-                    self.log.debug("skipping device %s", src)
+                    st = os.stat(src)
+                    if stat.S_ISBLK(st.st_mode):
+                        maj, min = os.major(st.st_rdev), os.minor(st.st_rdev)
+                        self.log.debug("+ mknod %s b %d %d", dst, maj, min)
+                        os.mknod(dst, st.st_mode, st.st_rdev)
+                    elif stat.S_ISCHR(st.st_mode):
+                        maj, min = os.major(st.st_rdev), os.minor(st.st_rdev)
+                        self.log.debug("+ mknod %s c %d %d", dst, maj, min)
+                        os.mknod(dst, st.st_mode, st.st_rdev)
+                    else:
+                        self.log.debug("skipping device %s", src)
 
         dst = os.path.join(self.dir, "dev/pts")
         if not os.path.exists(dst):
@@ -756,6 +1033,11 @@ class InitrdContext(SubprocessMixin):
                 self.makedirs(dst)
 
     def __enter__(self):
+
+        with open("/proc/filesystems") as fd:
+            buf = fd.read()
+        if "devtmpfs" in buf:
+            self._hasDevTmpfs = True
 
         if self.initrd is not None:
 
@@ -777,42 +1059,170 @@ class InitrdContext(SubprocessMixin):
         cmd = ('mount', '-t', 'sysfs', 'sysfs', dst,)
         self.check_call(cmd, vmode=self.V1)
 
+        # Hurr, the efivarfs module may not be loaded
+        with open("/proc/filesystems") as fd:
+            buf = fd.read()
+        if "efivarfs" not in buf:
+            cmd = ('modprobe', 'efivarfs',)
+            try:
+                self.check_output(cmd, vmode=self.V1, stderr=subprocess.STDOUT)
+            except subprocess.CalledProcessError:
+                pass
+
+        dst = os.path.join(self.dir, "sys/firmware/efi/efivars")
+        if os.path.exists(dst):
+            cmd = ('mount', '-t', 'efivarfs', 'efivarfs', dst,)
+            self.check_call(cmd, vmode=self.V1)
+
+        # maybe mount devtmpfs
+        if self._hasDevTmpfs:
+            dst = os.path.join(self.dir, "dev")
+            cmd = ('mount', '-t', 'devtmpfs', 'devtmpfs', dst,)
+            self.check_call(cmd, vmode=self.V1)
+
+            dst = os.path.join(self.dir, "dev/pts")
+            if not os.path.exists(dst):
+                self.mkdir(dst)
+
         dst = os.path.join(self.dir, "dev/pts")
         cmd = ('mount', '-t', 'devpts', 'devpts', dst,)
         self.check_call(cmd, vmode=self.V1)
 
         return self
 
-    def __exit__(self, type, value, tb):
+    def unmount(self):
 
         p = ProcMountsParser()
-        dirs = [e.dir for e in p.mounts if e.dir.startswith(self.dir)]
+        if self.dir is not None:
+            dirs = [e.dir for e in p.mounts if e.dir.startswith(self.dir)]
+        else:
+            dirs = []
 
         # XXX probabaly also kill files here
 
         # umount any nested mounts
-        self.log.debug("un-mounting mounts points in chroot %s", self.dir)
-        dirs.sort(reverse=True)
-        for p in dirs:
-            cmd = ('umount', p,)
-            self.check_call(cmd, vmode=self.V1)
+        if dirs:
+            self.log.debug("un-mounting mounts points in chroot %s", self.dir)
+            dirs.sort(reverse=True)
+            for p in dirs:
+                cmd = ('umount', p,)
+                self.check_call(cmd, vmode=self.V1)
 
-        if self.initrd is not None:
+    def shutdown(self):
+
+        self.unmount()
+
+        if self.initrd and self.dir:
             self.log.debug("cleaning up chroot in %s", self.dir)
             self.rmtree(self.dir)
-        else:
+        elif self.dir:
             self.log.debug("saving chroot in %s", self.dir)
 
+    def __exit__(self, type, value, tb):
+        self.shutdown()
         return False
 
+    def detach(self):
+        self.__initrd, self.initrd = self.initrd, None
+        self.__dir, self.dir = self.dir, None
+
+    def attach(self):
+        self.initrd = self.__initrd
+        self.dir = self.__dir
+
     @classmethod
-    def mkChroot(self, initrd, log=None):
-        with InitrdContext(initrd=initrd, log=log) as ctx:
+    def mkChroot(cls, initrd, log=None):
+        with cls(initrd=initrd, log=log) as ctx:
             initrdDir = ctx.dir
-            ctx.initrd = None
+            ctx.detach()
             # save the unpacked directory, do not clean it up
             # (it's inside this chroot anyway)
         return initrdDir
+
+class UbootInitrdContext(SubprocessMixin):
+
+    def __init__(self, path, log=None):
+        self.path = path
+        self.log = log or logging.getLogger(self.__class__.__name__)
+        self.initrd = self.__initrd = None
+
+    def _extractFit(self):
+        self.log.debug("parsing FIT image in %s", self.path)
+        p = Fit.Parser(path=self.path, log=self.log)
+        node = p.getInitrdNode()
+        if node is None:
+            raise ValueError("cannot find initrd node in FDT")
+        prop = node.properties.get('data', None)
+        if prop is None:
+            raise ValueError("cannot find initrd data property in FDT")
+
+        with open(self.path) as fd:
+            self.log.debug("reading initrd at [%x:%x]",
+                           prop.offset, prop.offset+prop.sz)
+            fd.seek(prop.offset, 0)
+            buf = fd.read(prop.sz)
+
+        fno, self.initrd = tempfile.mkstemp(prefix="initrd-",
+                                            suffix=".img")
+        self.log.debug("+ cat > %s", self.initrd)
+        with os.fdopen(fno, "w") as fd:
+            fd.write(buf)
+
+    def _extractLegacy(self):
+        self.log.debug("parsing legacy U-Boot image in %s", self.path)
+        p = Legacy.Parser(path=self.path, log=self.log)
+
+        if p.ih_type != Legacy.Parser.IH_TYPE_MULTI:
+            raise ValueError("not a multi-file image")
+
+        if p.ih_os != Legacy.Parser.IH_OS_LINUX:
+            raise ValueError("invalid OS code")
+
+        sz, off = p.images[1]
+        # assume the initrd is the second of three images
+
+        with open(self.path) as fd:
+            self.log.debug("reading initrd at [%x:%x]",
+                           off, off+sz)
+            fd.seek(off, 0)
+            buf = fd.read(sz)
+
+        fno, self.initrd = tempfile.mkstemp(prefix="initrd-",
+                                            suffix=".img")
+        self.log.debug("+ cat > %s", self.initrd)
+        with os.fdopen(fno, "w") as fd:
+            fd.write(buf)
+
+    def __enter__(self):
+
+        with open(self.path) as fd:
+            isFit = Fit.Parser.isFit(stream=fd)
+            isLegacy = Legacy.Parser.isLegacy(stream=fd)
+
+        if isFit:
+            self._extractFit()
+            return self
+
+        if isLegacy:
+            self._extractLegacy()
+            return self
+
+        raise ValueError("invalid U-Boot image %s" % self.path)
+
+    def shutdown(self):
+        initrd, self.initrd = self.initrd, None
+        if initrd and os.path.exists(initrd):
+            self.unlink(initrd)
+
+    def __exit__(self, eType, eValue, eTrace):
+        self.shutdown()
+        return False
+
+    def detach(self):
+        self.__initrd, self.initrd = self.initrd, None
+
+    def attach(self):
+        self.initrd = self.__initrd
 
 class ChrootSubprocessMixin:
 
@@ -865,9 +1275,55 @@ class ChrootSubprocessMixin:
             cmd = ['chroot', self.chrootDir,] + list(cmd)
 
         if not self.mounted:
-            with InitrdContext(self.chrootDir, log=self.log) as ctx:
+            with InitrdContext(dir=self.chrootDir, log=self.log) as ctx:
                 self.log.debug("+ " + " ".join(cmd))
                 return subprocess.check_output(cmd, *args, cwd=cwd, **kwargs)
         else:
             self.log.debug("+ " + " ".join(cmd))
             return subprocess.check_output(cmd, *args, cwd=cwd, **kwargs)
+
+class OnieSubprocess:
+    """Simple subprocess mixin that defers to onie-shell."""
+
+    def __init__(self, log=None):
+        self.log = log or logging.getLogger("onie")
+
+    def check_call(self, *args, **kwargs):
+        args = list(args)
+        kwargs = dict(kwargs)
+
+        cwd = kwargs.pop('cwd', None)
+        if cwd is not None:
+            raise ValueError("cwd not supported")
+
+        if args:
+            cmd = args.pop(0)
+        else:
+            cmd = kwargs.pop('cmd')
+        if isinstance(cmd, basestring):
+            cmd = ('onie-shell', '-c', 'IFS=;' + cmd,)
+        else:
+            cmd = ['onie-shell', '-c',] + " ".join(cmd)
+
+        self.log.debug("+ " + " ".join(cmd))
+        subprocess.check_call(cmd, *args, cwd=cwd, **kwargs)
+
+    def check_output(self, *args, **kwargs):
+        args = list(args)
+        kwargs = dict(kwargs)
+
+        cwd = kwargs.pop('cwd', None)
+        if cwd is not None:
+            raise ValueError("cwd not supported")
+
+        if args:
+            cmd = args.pop(0)
+        else:
+            cmd = kwargs.pop('cmd')
+        if isinstance(cmd, basestring):
+            cmd = ('onie-shell', '-c', 'IFS=;' + cmd,)
+        else:
+            cmd = ['onie-shell', '-c',] + " ".join(list(cmd))
+
+        self.log.debug("+ " + " ".join(cmd))
+        return subprocess.check_output(cmd, *args, cwd=cwd, **kwargs)

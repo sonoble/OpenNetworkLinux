@@ -51,6 +51,10 @@ cdefs: &cdefs
 - ONLPLIB_CONFIG_I2C_BLOCK_SIZE:
     doc: "Maximum read and write block size."
     default: 32
+- ONLPLIB_CONFIG_I2C_READ_RETRY_COUNT:
+    doc: "The number of I2C read retry attempts (if enabled)."
+    default: 16
+
 - ONLPLIB_CONFIG_I2C_USE_CUSTOM_HEADER:
     doc: "Include the custom i2c header (include/linux/i2c-devices.h) to avoid conflicts with the kernel and i2c-dev packages."
     default: 1
@@ -71,3 +75,22 @@ definitions:
         - snprintf
         - strlen
         - atoi
+
+  xmacro:
+    ONIE_TLV_ENTRY:
+      members:
+        - product_name,     Product Name,     0x21, str
+        - part_number,      Part Number,      0x22, str
+        - serial_number,    Serial Number,    0x23, str
+        - mac,              MAC,              0x24, mac
+        - manufacture_date, Manufacture Date, 0x25, str
+        - device_version,   Device Version,   0x26, byte
+        - label_revision,   Label Revision,   0x27, str
+        - platform_name,    Platform Name,    0x28, str
+        - onie_version,     ONIE Version,     0x29, str
+        - mac_range,        MAC Range,        0x2A, int16
+        - manufacturer,     Manufacturer,     0x2B, str
+        - country_code,     Country Code,     0x2C, str
+        - vendor,           Vendor,           0x2D, str
+        - diag_version,     Diag Version,     0x2E, str
+        - service_tag,      Service Tag,      0x2F, str

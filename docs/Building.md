@@ -1,4 +1,5 @@
-#How to Build Open Network Linux 
+How to Build Open Network Linux 
+============================================================
 
 In case you are not interested in building ONL from scratch
 (it takes a while) you can download pre-compiled binaries from
@@ -55,7 +56,8 @@ and the SWI files (if you want them) are in
 
 
 
-#Installing Docker Gotchas
+Installing Docker Gotchas
+------------------------------------------------------------
 
 Docker installer oneliner (for reference: see docker.com for details)
 
@@ -78,7 +80,7 @@ Consider enabling builds for non-privileged users with:
 - If you run as non-root without this, you will get errors like `..: dial unix /var/run/docker.sock: permission denied`
 - Building as root is fine as well (it immediately jumps into a root build shell), so this optional
     
-#Additional Build Details
+Additional Build Details
 ----------------------------------------------------------
 
 The rest of this guide talks about how to build specific 
@@ -105,29 +107,10 @@ Adding/Removing packages from a SWI:
 
 The list of packages for a given SWI are in
 
-    $ONL/packages/base/any/rootfs/$suite/common/$ARCH-packages.yml # for $ARCH specific packages
-    $ONL/packages/base/any/rootfs/$suite/common/common-packages.yml	# for $ARCH-independent packages
+    $ONL/builds/any/rootfs/jessie/common/*.yml
 
-Build a software image (SWI) for all powerpc platforms:
-------------------------------------------------------------
-    #> cd $ONL/builds/powerpc/swi
-    #> make
-    #> cd builds
-    #> ls *.swi
-    ONL-2.0.0_ONL-OS_2015-12-12.0252-ffce159_PPC.swi
-    #>
+The "all-base-packages.yml" file is for all architectures and the rest are architecture specific package lists.
 
-Build an ONIE-compatible installer for all powerpc platforms.
-This will incorporate the SWI you just built or build it dynamically if not.
-
-This installer image can be served to ONIE on Quanta or Accton platforms:
-------------------------------------------------------------
-    #> cd $ONL/builds/powerpc/installer/legacy
-    #> make
-    #> cd builds
-    #> ls *INSTALLER
-    ONL-2.0.0_ONL-OS_2015-12-12.0252-ffce159_PPC_INSTALLER
-    #>
 
 Example setup on new Debian 8.2 installation
 ------------------------------------------------------------

@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python2
 ############################################################
 #
 # Common utilities for the ONL python tools.
@@ -12,15 +12,48 @@ import os
 import fcntl
 import glob
 from string import Template
+import time
 
 logger = None
 
-# Cheap colored terminal logging. Fixme.
-def color_logging():
-    if sys.stderr.isatty():
-        logging.addLevelName( logging.WARNING, "\033[1;31m%s\033[1;0m" % logging.getLevelName(logging.WARNING))
-        logging.addLevelName( logging.ERROR, "\033[1;41m%s\033[1;0m" % logging.getLevelName(logging.ERROR))
+class colors(object):
 
+    RED=31
+    GREEN=32
+    YELLOW=33
+    BLUE=34
+    PURPLE=35
+    CYAN=36
+    REDB=41
+    GREENB=42
+    YELLOWB=43
+    BLUEB=44
+    PURPLEB=45
+    CYANB=46
+
+    @staticmethod
+    def color(string, color):
+        if sys.stderr.isatty():
+            return "\033[1;%sm%s\033[1;0m" % (color, string)
+        else:
+            return string
+
+# Adds a method for each color to the colors class
+for attr in dir(colors):
+    def colormethod(attr):
+        def f(klass, string):
+            return colors.color(string, getattr(colors, attr))
+        return classmethod(f)
+
+    if attr.isupper():
+        setattr(colors, attr.lower(), colormethod(attr))
+
+
+
+
+def color_logging():
+    logging.addLevelName( logging.WARNING, colors.red(logging.getLevelName(logging.WARNING)))
+    logging.addLevelName( logging.ERROR, colors.redb(logging.getLevelName(logging.ERROR)))
 
 def init_logging(name, lvl=logging.DEBUG):
     global logger
@@ -30,6 +63,27 @@ def init_logging(name, lvl=logging.DEBUG):
     color_logging()
     return logger
 
+
+class Profiler(object):
+
+    ENABLED=True
+    LOGFILE=None
+
+    def __enter__(self):
+        self.start = time.time()
+        return self
+
+    def __exit__(self, *exc):
+        self.end = time.time()
+        self.duration = self.end - self.start
+
+    def log(self, operation, prefix=''):
+        msg = "[profiler] %s%s : %s seconds (%s minutes)" % (prefix, operation, self.duration, self.duration / 60.0)
+        if self.ENABLED:
+            logger.info(colors.cyan(msg))
+        if self.LOGFILE:
+            with open(self.LOGFILE, "a") as f:
+                f.write(msg + "\n")
 
 ############################################################
 #
@@ -62,13 +116,17 @@ def execute(args, sudo=False, chroot=None, ex=None):
 
     logger.debug("Executing:%s", args)
 
-    try:
-        subprocess.check_call(args, shell=shell)
-        return 0
-    except subprocess.CalledProcessError, e:
-        if ex:
-            raise ex
-        return e.returncode
+    rv = 0
+    with Profiler() as profiler:
+        try:
+            subprocess.check_call(args, shell=shell)
+            rv = 0
+        except subprocess.CalledProcessError, e:
+            if ex:
+                raise ex
+            rv = e.returncode
+    profiler.log(args)
+    return rv
 
 
 # Flatten lists if string lists
@@ -159,7 +217,7 @@ class Lock(object):
         self.handle.close()
 
 
-def filepath(absdir, relpath, eklass):
+def filepath(absdir, relpath, eklass, required=True):
     """Return the absolute path for the given absdir/repath file."""
     p = None
     if os.path.isabs(relpath):
@@ -170,7 +228,8 @@ def filepath(absdir, relpath, eklass):
     # Globs that result in a single file are allowed:
     g = glob.glob(p)
     if len(g) is 0:
-        raise eklass("'%s' did not match any files." % p)
+        if required:
+            raise eklass("'%s' did not match any files." % p)
     elif len(g) > 1:
             raise eklass("'%s' matched too many files %s" % (p, g))
     else:
@@ -178,7 +237,7 @@ def filepath(absdir, relpath, eklass):
 
     return p
 
-def validate_src_dst_file_tuples(absdir, data, dstsubs, eklass):
+def validate_src_dst_file_tuples(absdir, data, dstsubs, eklass, required=True):
     files = []
     if type(data) is dict:
         for (s,d) in data.iteritems():
@@ -202,11 +261,11 @@ def validate_src_dst_file_tuples(absdir, data, dstsubs, eklass):
     #
     flist = []
     for f in files:
-        src = filepath(absdir, f[0], eklass)
-        if not os.path.exists(src):
+        src = filepath(absdir, f[0], eklass, required)
+        if os.path.exists(src):
+            t = Template(f[1])
+            dst = t.substitute(dstsubs)
+            flist.append((src, dst))
+        elif required:
             raise eklass("Source file or directory '%s' does not exist." % src)
-        t = Template(f[1])
-        dst = t.substitute(dstsubs)
-        flist.append((src, dst))
-
     return flist

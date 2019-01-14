@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python2
 ############################################################
 #
 # ONL Root Filesystem Generator
@@ -85,11 +85,33 @@ class OnlRfsSystemAdmin(object):
         self.chmod("go-wx", pf);
         self.chmod("go-wx", sf);
 
+    def groupadd(self, group, gid=None, unique=True, system=False, force=False, password=None):
+        args = [ 'groupadd' ]
+        if force:
+            args.append("--force")
+        if system:
+            args.append("--system")
+        if not unique:
+            args.append("--non-unique")
+        if password:
+            args = args + [ '--password', password ]
+        if gid:
+            args = args + [ '--gid', str(gid) ]
+
+        args.append(group)
+
+        onlu.execute(args,
+                     chroot=self.chroot,
+                     ex=OnlRfsError("Adding group  '%s' failed." % group))
+
+        logger.info("added group %s", group)
+
     def useradd(self, username, uid=None, gid=None, password=None, shell='/bin/bash', home=None, groups=None, sudo=False, deleteFirst=True):
         args = [ 'useradd', '--create-home' ]
 
         if uid is not None:
             args = args + [ '--non-unique', '--uid', str(uid) ]
+
         if gid is not None:
             args = args + [ '--gid', str(gid) ]
 
@@ -100,14 +122,11 @@ class OnlRfsSystemAdmin(object):
         if shell:
             args = args + [ '--shell', shell ]
 
-        if gid:
-            args = args + [ '--gid', gid ]
-
         if home:
             args = args + [ '--home', home ]
 
         if groups:
-            args = args + [ '--group', groups ]
+            args = args + [ '--groups', ','.join(groups) ]
 
         if deleteFirst:
             self.userdel(username)
@@ -170,9 +189,18 @@ class OnlMultistrapConfig(object):
         self.__validate_key(general, 'arch', str, True)
         self.__validate_key(general, 'debootstrap', str, True)
 
-        for e in general['debootstrap'].split():
-            if e not in self.config:
-                raise OnlRfsError("Section '%s' is specified in the debootstrap option but does not exist in the configuration." % e)
+        for entry in [ 'debootstrap', 'aptsources' ]:
+            sectionlist = []
+            for e in general[entry].split():
+                if e not in self.config:
+                    raise OnlRfsError("Section '%s' is specified in the %s option but does not exist in the configuration." % (e, entry))
+
+                if self.config[e].get('arches', None) and general['arch'] not in self.config[e]['arches']:
+                    del self.config[e]
+                else:
+                    sectionlist.append(e)
+
+            general[entry] = " ".join(sectionlist)
 
         self.localrepos = []
 
@@ -224,6 +252,52 @@ class OnlMultistrapConfig(object):
         return handle.getvalue()
 
 
+
+class OnlRfsContext(object):
+    def __init__(self, directory, resolvconf=True):
+        self.directory = directory
+        self.dev = os.path.join(self.directory, "dev")
+        self.proc = os.path.join(self.directory, "proc")
+        self.rc = resolvconf
+        if self.rc:
+            self.resolvconf = os.path.join(self.directory, "etc", "resolv.conf")
+            self.resolvconfb = "%s.onlrfs" % (self.resolvconf)
+
+    def exists(self, fname):
+        return os.path.islink(fname) or os.path.exists(fname)
+
+    def __enter__(self):
+        try:
+            onlu.execute("sudo mount -t devtmpfs dev %s" % self.dev,
+                         ex=OnlRfsError("Could not mount dev in rfs."))
+            onlu.execute("sudo mount -t proc proc %s" % self.proc,
+                         ex=OnlRfsError("Could not mount proc in rfs."))
+
+            if self.rc:
+                if self.exists(self.resolvconf):
+                    onlu.execute("sudo mv %s %s" % (self.resolvconf, self.resolvconfb),
+                                 ex=OnlRfsError("Could not backup resolv.conf"))
+
+                onlu.execute("sudo cp --remove-destination /etc/resolv.conf %s" % (self.resolvconf),
+                             ex=OnlRfsError("Could install new resolv.conf"))
+            return self
+
+        except Exception, e:
+            logger.error("Exception %s in OnlRfsContext::__enter__" % e)
+            self.__exit__(None, None, None)
+            raise e
+
+    def __exit__(self, eType, eValue, eTrace):
+        onlu.execute("sudo umount -l %s %s" % (self.dev, self.proc),
+                     ex=OnlRfsError("Could not unmount dev and proc"))
+
+        if self.rc:
+            onlu.execute("sudo rm %s" % (self.resolvconf),
+                         ex=OnlRfsError("Could not remove new resolv.conf"))
+            if self.exists(self.resolvconfb):
+                onlu.execute("sudo mv %s %s" % (self.resolvconfb, self.resolvconf),
+                             ex=OnlRfsError("Could not restore resolv.conf"))
+
 class OnlRfsBuilder(object):
 
     DEFAULTS = dict(
@@ -260,7 +334,7 @@ class OnlRfsBuilder(object):
             if not os.path.exists(self.QEMU_PPC):
                 raise OnlRfsError("%s is missing." % self.QEMU_PPC)
 
-        if self.arch == 'armel':
+        if self.arch in [ 'armel', 'armhf' ]:
             if not os.path.exists(self.QEMU_ARM):
                 raise OnlRfsError("%s is missing." % self.QEMU_ARM)
 
@@ -284,10 +358,11 @@ class OnlRfsBuilder(object):
         msconfig = self.ms.generate_file()
 
         # Optional local package updates
-        for r in self.ms.localrepos:
-            logger.info("Updating %s" % r)
-            if os.path.exists(os.path.join(r, 'Makefile')):
-                onlu.execute("make -C %s" % r)
+        if os.getenv("ONLRFS_NO_PACKAGE_SCAN") is None:
+            for r in self.ms.localrepos:
+                logger.info("Updating %s" % r)
+                if os.path.exists(os.path.join(r, 'Makefile')):
+                    onlu.execute("make -C %s" % r)
 
         if os.path.exists(dir_):
             onlu.execute("sudo rm -rf %s" % dir_,
@@ -303,16 +378,18 @@ class OnlRfsBuilder(object):
     def dpkg_configure(self, dir_):
         if self.arch == 'powerpc':
             onlu.execute('sudo cp %s %s' % (self.QEMU_PPC, os.path.join(dir_, 'usr/bin')))
-        if self.arch == 'armel':
+        if self.arch in [ 'armel', 'armhf' ]:
             onlu.execute('sudo cp %s %s' % (self.QEMU_ARM, os.path.join(dir_, 'usr/bin')))
         if self.arch == 'arm64':
             onlu.execute('sudo cp %s %s' % (self.QEMU_ARM64, os.path.join(dir_, 'usr/bin')))
 
+        onlu.execute('sudo cp %s %s' % (os.path.join(os.getenv('ONL'), 'tools', 'scripts', 'base-files.postinst'),
+                                        os.path.join(dir_, 'var', 'lib', 'dpkg', 'info', 'base-files.postinst')));
+
         script = os.path.join(dir_, "tmp/configure.sh")
         with open(script, "w") as f:
             os.chmod(script, 0700)
-            f.write("""
-#!/bin/bash -ex
+            f.write("""#!/bin/bash -ex
 /bin/echo -e "#!/bin/sh\\nexit 101" >/usr/sbin/policy-rc.d
 chmod +x /usr/sbin/policy-rc.d
 export DEBIAN_FRONTEND=noninteractive
@@ -345,20 +422,11 @@ rm -f /usr/sbin/policy-rc.d
 
     def configure(self, dir_):
 
-        try:
-
-            onlu.execute("sudo mount -t devtmpfs dev %s" % os.path.join(dir_, "dev"),
-                         ex=OnlRfsError("Could not mount dev in new filesystem."))
-
-            onlu.execute("sudo mount -t proc proc %s" % os.path.join(dir_, "proc"),
-                         ex=OnlRfsError("Could not mount proc in new filesystem."))
-
-            script = os.path.join(dir_, "tmp/configure.sh")
-
-            if not os.getenv('NO_DPKG_CONFIGURE'):
+        if not os.getenv('NO_DPKG_CONFIGURE'):
+            with OnlRfsContext(dir_, resolvconf=False):
                 self.dpkg_configure(dir_)
 
-
+        with OnlRfsContext(dir_):
             os_release = os.path.join(dir_, 'etc', 'os-release')
             if os.path.exists(os_release):
                 # Convert /etc/os-release to /etc/os-release.json
@@ -373,6 +441,11 @@ rm -f /usr/sbin/policy-rc.d
 
             Configure = self.config.get('Configure', None)
             if Configure:
+
+                for cmd in Configure.get('run', []):
+                    onlu.execute("sudo chroot %s %s" % (dir_, cmd),
+                                 ex=OnlRfsError("run command '%s' failed" % cmd))
+
                 for overlay in Configure.get('overlays', []):
                     logger.info("Overlay %s..." % overlay)
                     onlu.execute('tar -C %s -c --exclude "*~" . | sudo tar -C %s -x -v --no-same-owner' % (overlay, dir_),
@@ -395,9 +468,12 @@ rm -f /usr/sbin/policy-rc.d
                     onlu.execute(command,
                                  ex=OnlRfsError("Command '%s' failed." % command))
 
-                for (user, values) in Configure.get('users', {}).iteritems():
-                    ua = OnlRfsSystemAdmin(dir_)
 
+                ua = OnlRfsSystemAdmin(dir_)
+                for (group, values) in Configure.get('groups', {}).iteritems():
+                    ua.groupadd(group=group, **values if values else {})
+
+                for (user, values) in Configure.get('users', {}).iteritems():
                     if user == 'root':
                         if 'password' in values:
                             ua.user_password_set(user, values['password'])
@@ -410,7 +486,7 @@ rm -f /usr/sbin/policy-rc.d
                     logger.info("Cleaning Filesystem...")
                     onlu.execute('sudo chroot %s /usr/bin/apt-get clean' % dir_)
                     onlu.execute('sudo chroot %s /usr/sbin/localepurge' % dir_ )
-                    onlu.execute('sudo chroot %s find /usr/share/doc -type f -delete' % dir_)
+                    onlu.execute('sudo chroot %s find /usr/share/doc -type f -not -name asr.json -delete' % dir_)
                     onlu.execute('sudo chroot %s find /usr/share/man -type f -delete' % dir_)
 
                 if 'PermitRootLogin' in options:
@@ -458,6 +534,14 @@ rm -f /usr/sbin/policy-rc.d
                     ua.chmod('go-w', f)
                     ua.chmod('go-w', os.path.dirname(f))
 
+                if options.get('asr', None):
+                    asropts = options.get('asr')
+                    logger.info("Gathering ASR documentation...")
+                    sys.path.append("%s/sm/infra/tools" % os.getenv('ONL'))
+                    import asr
+                    asro = asr.AimSyslogReference()
+                    asro.merge(dir_)
+                    asro.format(os.path.join(dir_, asropts['file']), fmt=asropts['format'])
 
                 for (mf, fields) in Configure.get('manifests', {}).iteritems():
                     logger.info("Configuring manifest %s..." % mf)
@@ -517,11 +601,59 @@ rm -f /usr/sbin/policy-rc.d
                     fn = os.path.join(dir_, "etc/issue.net")
                     onlu.execute("sudo chmod a+w %s" % fn)
                     with open(fn, "w") as f:
-                        f.write("%s" % issue)
+                        f.write("%s\n" % issue)
                     onlu.execute("sudo chmod a-w %s" % fn)
 
-        finally:
-            onlu.execute("sudo umount -l %s %s" % (os.path.join(dir_, "dev"), os.path.join(dir_, "proc")))
+
+    def update(self, dir_, packages):
+
+        ONLPM = "%s/tools/onlpm.py" % os.getenv('ONL')
+
+        with OnlRfsContext(dir_):
+            for pspec in packages:
+                for pkg in pspec.split(','):
+                    logger.info("updating %s into %s", pkg, dir_)
+                    cmd = (ONLPM, '--verbose',
+                           '--sudo',
+                           '--extract-dir', pkg, dir_,)
+                    onlu.execute(cmd,
+                                 ex=OnlRfsError("update of %s failed" % pkg))
+
+    def install(self, dir_, packages):
+
+        ONLPM = "%s/tools/onlpm.py" % os.getenv('ONL')
+
+        with OnlRfsContext(dir_):
+            for pspec in packages:
+                for pkg in pspec.split(','):
+
+                    cmd = (ONLPM, '--lookup', pkg,)
+                    try:
+                        buf = subprocess.check_output(cmd)
+                    except subprocess.CalledProcessError as ex:
+                        logger.error("cannot find %s", pkg)
+                        raise ValueError("update failed")
+
+                    if not buf.strip():
+                        raise ValueError("cannot find %s" % pkg)
+                    src = buf.splitlines(False)[0]
+                    d, b = os.path.split(src)
+                    dst = os.path.join(dir_, "tmp", b)
+                    shutil.copy2(src, dst)
+                    src2 = os.path.join("/tmp", b)
+
+                    logger.info("installing %s into %s", pkg, dir_)
+                    cmd = ('/usr/bin/rfs-dpkg', '-i', src2,)
+                    onlu.execute(cmd,
+                                 chroot=dir_,
+                                 ex=OnlRfsError("install of %s failed" % pkg))
+
+                    name, _, _ = pkg.partition(':')
+                    logger.info("updating dependencies for %s", pkg)
+                    cmd = ('/usr/bin/rfs-apt-get', '-f', 'install', name,)
+                    onlu.execute(cmd,
+                                 chroot=dir_,
+                                 ex=OnlRfsError("install of %s failed" % pkg))
 
 
 if __name__ == '__main__':
@@ -532,13 +664,40 @@ if __name__ == '__main__':
     ap.add_argument("--dir")
     ap.add_argument("--show-packages", action='store_true')
     ap.add_argument("--no-build-packages", action='store_true')
+    ap.add_argument("--only-build-packages", action='store_true')
     ap.add_argument("--msconfig")
     ap.add_argument("--multistrap-only", action='store_true')
     ap.add_argument("--no-multistrap", action='store_true')
     ap.add_argument("--cpio")
     ap.add_argument("--squash")
+    ap.add_argument("--enable-root")
+
+    ap.add_argument("--no-configure", action='store_true')
+    ap.add_argument("--update", action='append')
+    ap.add_argument("--install", action='append')
 
     ops = ap.parse_args()
+
+    if ops.enable_root:
+        #
+        # Fixme -- this should all be rearranged to naturally support
+        # arbitrary filesystem modifications.
+        #
+        sa = OnlRfsSystemAdmin(ops.dir)
+        sa.user_password_set('root', ops.enable_root)
+        config = os.path.join(ops.dir, 'etc/ssh/sshd_config')
+        sa.chmod('a+rw', config)
+        lines = open(config).readlines()
+        with open(config, "w") as f:
+            for line in lines:
+                if line.startswith('PermitRootLogin'):
+                    v = "Yes"
+                    logger.info("Setting PermitRootLogin to %s" % v)
+                    f.write('PermitRootLogin %s\n' % v)
+                else:
+                    f.write(line)
+        sa.chmod('644', config)
+        sys.exit(0)
 
     try:
         x = OnlRfsBuilder(ops.config, ops.arch)
@@ -557,9 +716,10 @@ if __name__ == '__main__':
         if not ops.no_build_packages:
             pkgs = x.get_packages()
             # Invoke onlpm to build all required (local) packages.
-            onlu.execute("onlpm --try-arches %s all --skip-missing --require %s" % (ops.arch, " ".join(pkgs)),
+            onlu.execute("%s/tools/onlpm.py --try-arches %s all --skip-missing --require %s" % (os.getenv('ONL'), ops.arch, " ".join(pkgs)),
                          ex=OnlRfsError("Failed to build all required packages."))
-
+            if ops.only_build_packages:
+                sys.exit(0)
 
         if ops.multistrap_only:
             x.multistrap(ops.dir)
@@ -568,10 +728,17 @@ if __name__ == '__main__':
         if not ops.no_multistrap and not os.getenv('NO_MULTISTRAP'):
             x.multistrap(ops.dir)
 
-        x.configure(ops.dir)
+        if not ops.no_configure and not os.getenv('NO_DPKG_CONFIGURE'):
+            x.configure(ops.dir)
+
+        if ops.update:
+            x.update(ops.dir, ops.update)
+
+        if ops.install:
+            x.install(ops.dir, ops.install)
 
         if ops.cpio:
-            if onlu.execute("make-cpio.sh %s %s" % (ops.dir, ops.cpio)) != 0:
+            if onlu.execute("%s/tools/scripts/make-cpio.sh %s %s" % (os.getenv('ONL'), ops.dir, ops.cpio)) != 0:
                 raise OnlRfsError("cpio creation failed.")
 
         if ops.squash:

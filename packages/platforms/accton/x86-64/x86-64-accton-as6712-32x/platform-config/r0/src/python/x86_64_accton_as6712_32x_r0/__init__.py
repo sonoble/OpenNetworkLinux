@@ -8,6 +8,11 @@ class OnlPlatform_x86_64_accton_as6712_32x_r0(OnlPlatformAccton,
     SYS_OBJECT_ID=".6712.32"
 
     def baseconfig(self):
+        self.insmod('optoe')
+        self.insmod('cpr_4011_4mxx')
+        self.insmod("ym2651y")
+        for m in [ 'cpld', 'fan', 'psu', 'leds' ]:
+            self.insmod("x86-64-accton-as6712-32x-%s.ko" % m)
 
         ########### initialize I2C bus 0 ###########
         # initialize CPLD
@@ -21,9 +26,8 @@ class OnlPlatform_x86_64_accton_as6712_32x_r0(OnlPlatformAccton,
 
         # initialize QSFP port 1~32
         for port in range(1, 33):
-            self.new_i2c_device('as6712_32x_sfp%d' % port,
-                                0x50,
-                                port+1)
+            self.new_i2c_device('optoe1', 0x50, port+1)
+            subprocess.call('echo port%d > /sys/bus/i2c/devices/%d-0050/port_name' % (port, port+1), shell=True)
 
         ########### initialize I2C bus 1 ###########
         self.new_i2c_devices(
@@ -31,19 +35,17 @@ class OnlPlatform_x86_64_accton_as6712_32x_r0(OnlPlatformAccton,
                 # initiate multiplexer (PCA9548)
                 ('pca9548', 0x70, 1),
 
-                # initiate PSU-1 AC Power
-                ('as6712_32x_psu', 0x38, 35),
+                # initiate PSU-1
+                ('as6712_32x_psu1', 0x38, 35),
                 ('cpr_4011_4mxx',  0x3C, 35),
+                ('as6712_32x_psu1', 0x50, 35),
+                ('ym2401',  0x58, 35),
 
-                # initiate PSU-2 AC Power
-                ('as6712_32x_psu', 0x3b, 36),
+                # initiate PSU-2
+                ('as6712_32x_psu2', 0x3b, 36),
                 ('cpr_4011_4mxx',  0x3F, 36),
-
-                # initiate PSU-1 DC Power
-                ('as6712_32x_psu', 0x50, 35),
-
-                # initiate PSU-2 DC Power
-                ('as6712_32x_psu', 0x53, 36),
+                ('as6712_32x_psu2', 0x53, 36),
+                ('ym2401',  0x5b, 36),
 
                 # initiate lm75
                 ('lm75', 0x48, 38),

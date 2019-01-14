@@ -8,6 +8,11 @@ class OnlPlatform_x86_64_accton_as7512_32x_r0(OnlPlatformAccton,
     SYS_OBJECT_ID=".7512.32"
 
     def baseconfig(self):
+        self.insmod('optoe')
+        self.insmod("ym2651y")
+        for m in [ 'cpld', 'fan', 'psu', 'leds' ]:
+            self.insmod("x86-64-accton-as7512-32x-%s" % m)
+
         ########### initialize I2C bus 0 ###########
         # initialize multiplexer (PCA9548)
         self.new_i2c_device('pca9548', 0x76, 0)
@@ -26,9 +31,9 @@ class OnlPlatform_x86_64_accton_as7512_32x_r0(OnlPlatformAccton,
         # initialize CPLD
         self.new_i2c_devices(
             [
-                ('accton_i2c_cpld', 0x60, 0),
-                ('accton_i2c_cpld', 0x62, 0),
-                ('accton_i2c_cpld', 0x64, 0),
+                ('as7512_32x_cpld1', 0x60, 4),
+                ('as7512_32x_cpld2', 0x62, 5),
+                ('as7512_32x_cpld3', 0x64, 6),
                 ]
             )
         ########### initialize I2C bus 1 ###########
@@ -41,11 +46,11 @@ class OnlPlatform_x86_64_accton_as7512_32x_r0(OnlPlatformAccton,
                 ('pca9548', 0x71, 1),
 
                 # initiate PSU-1
-                ('as7512_32x_psu1', 0x50, 10),
+                ('as7512_32x_psu', 0x50, 10),
                 ('ym2651', 0x58, 10),
 
                 # initiate PSU-2
-                ('as7512_32x_psu2', 0x53, 11),
+                ('as7512_32x_psu', 0x53, 11),
                 ('ym2651', 0x5b, 11),
 
                 #initiate max6657 thermal sensor
@@ -60,7 +65,9 @@ class OnlPlatform_x86_64_accton_as7512_32x_r0(OnlPlatformAccton,
             )
 
         # initialize QSFP port 1~32
-        for p in range(1,33):
-            self.new_i2c_device('as7512_32x_sfp%d' % p, 0x50, 17+p)
+        # initialize QSFP devices
+        for port in range(1, 33):
+            self.new_i2c_device('optoe1', 0x50, port+17)
+            subprocess.call('echo port%d > /sys/bus/i2c/devices/%d-0050/port_name' % (port, port+17), shell=True)
 
         return True

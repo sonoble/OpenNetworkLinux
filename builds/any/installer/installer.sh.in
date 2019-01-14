@@ -19,6 +19,7 @@ if test "$ARCH" != "$IARCH"; then
   # identify mappings between kernel arch and debian arch
   case "$IARCH:$ARCH" in
     armel:armv7l) ;;
+    armhf:armv7l) ;;
     arm64:aarch64) ;;
     powerpc:ppc) ;;
     *)
@@ -141,10 +142,25 @@ if has_boot_env onl_installer_debug; then installer_debug=1; fi
 if test "$installer_debug"; then
   echo "Debug mode"
   set -x
+  installer_wait=30
+else
+  installer_wait=3
 fi
 
 # Pickup ONIE defines for this machine.
-if test -r /etc/machine.conf; then
+if test "$onie_platform"; then
+  :
+else
+  onie_platform=$(onie-sysinfo -p 2>/dev/null) || :
+fi
+if test "$onie_arch"; then
+  :
+else
+  onie_arch=$(onie-sysinfo -c 2>/dev/null) || :
+fi
+if test "$onie_platform"; then
+  :
+elif test -r /etc/machine.conf; then
   . /etc/machine.conf
 fi
 
@@ -242,7 +258,7 @@ if test "${onie_platform}"; then
 
     installer_umount
 
-    if installer_reboot; then
+    if installer_reboot $installer_wait; then
       :
     else
       sync
@@ -252,7 +268,7 @@ if test "${onie_platform}"; then
   }
 else
   if test "$ARCH_X86"; then
-    echo "Missing onie_platform (invalid /etc/machine.conf)" 1>&2
+    echo "Missing onie_platform (invalid or missing onie-sysinfo or /etc/machine.conf)" 1>&2
     exit 1
   fi
   #
@@ -361,16 +377,44 @@ else
   installer_list=$initrd_archive
 fi
 
+installer_unzip() {
+  local zip tmp dummy
+  zip=$1; shift
+
+  installer_say "Extracting from $zip: $@ ..."
+
+  tmp=$(mktemp -d -t "unzip-XXXXXX")
+  if test "$SFX_PAD"; then
+    # ha ha, busybox cannot exclude multiple files
+    unzip -o $zip "$@" -x $SFX_PAD -d $tmp
+  elif test "$SFX_UNZIP"; then
+    unzip -o $zip "$@" -x $installer_script -d $tmp
+  else
+    dd if=$zip bs=$SFX_BLOCKSIZE skip=$SFX_BLOCKS \
+    | unzip -o - "$@" -x $installer_script -d $tmp
+  fi
+
+  rm -f $tmp/$installer_script
+  if test "$SFX_PAD"; then
+    rm -f $tmp/$SFX_PAD
+  fi
+
+  set dummy $tmp/*
+  if test -e "$2"; then
+    shift
+    while test $# -gt 0; do
+      mv "$1" .
+      shift
+    done
+  else
+    installer_say "Extracting from $zip: no files extracted"
+  fi
+
+  return 0
+}
+
 installer_say "Unpacking ONL installer files..."
-if test "$SFX_PAD"; then
-  # ha ha, busybox cannot exclude multiple files
-  unzip -o $installer_zip $installer_list -x $SFX_PAD
-elif test "$SFX_UNZIP"; then
-  unzip -o $installer_zip $installer_list -x $installer_script
-else
-  dd if=$installer_zip bs=$SFX_BLOCKSIZE skip=$SFX_BLOCKS \
-  | unzip -o - $installer_list -x $installer_script
-fi
+installer_unzip $installer_zip $installer_list
 
 # Developer debugging
 if has_boot_env onl_installer_unpack_only; then installer_unpack_only=1; fi
@@ -444,6 +488,11 @@ mkdir -p "${rootdir}/etc/onl"
 cp /dev/null "${rootdir}/etc/onl/installer.conf"
 echo "onl_version=\"$onl_version\"" >> "${rootdir}/etc/onl/installer.conf"
 
+# pass in the platform identifier, otherwise encoded in
+# machine-XXX.conf and onie-sysinfo
+echo "onie_platform=$onie_platform" >> "${rootdir}/etc/onl/installer.conf"
+echo "onie_arch=$onie_arch" >> "${rootdir}/etc/onl/installer.conf"
+
 # Generate the MD5 signature for ourselves for future reference.
 installer_md5=$(md5sum "$0" | awk '{print $1}')
 echo "installer_md5=\"$installer_md5\"" >> "${rootdir}/etc/onl/installer.conf"
@@ -500,7 +549,7 @@ installer_force_umount() {
   dev=$1; shift
   mpt=$1; shift
   case "$mpt" in
-    /mnt/*)
+    /mnt/*|/boot/*)
       installer_say "Unmounting $mpt (--force)"
       umount "$mpt"
       ;;
@@ -513,6 +562,16 @@ else
   installer_say "*** watch out for lingering mount-points"
 fi
 
+installer_unzip $installer_zip preinstall.sh || :
+if test -f preinstall.sh; then
+  installer_say "Invoking pre-install actions"
+  chmod +x preinstall.sh
+  ./preinstall.sh $rootdir
+fi
+
+# make sure any GPT data is valid and clean
+installer_fixup_gpt || :
+
 chroot "${rootdir}" $installer_shell
 
 if test -f "$postinst"; then
@@ -522,11 +581,17 @@ if test -f "$postinst"; then
   set +x
 fi
 
+installer_unzip $installer_zip postinstall.sh || :
+if test -f postinstall.sh; then
+  chmod +x postinstall.sh
+  ./postinstall.sh $rootdir
+fi
+
 trap - 0 1
 installer_umount
 
 if test "${onie_platform}"; then
-  installer_reboot
+  installer_reboot $installer_wait
 fi
 
 exit

@@ -23,6 +23,8 @@
  *
  *
  ***********************************************************/
+#include <onlp/onlp.h>
+#include <onlplib/file.h>
 #include <sys/mman.h>
 #include <errno.h>
 #include <string.h>
@@ -115,7 +117,7 @@ int deviceNodeReadString(char *filename, char *buffer, int buf_size, int data_le
     return ret;
 }
 
-#define I2C_PSU_MODEL_NAME_LEN 9
+#define I2C_PSU_MODEL_NAME_LEN 11
 #define I2C_PSU_FAN_DIR_LEN    3
 #include <ctype.h>
 psu_type_t get_psu_type(int id, char* modelname, int modelname_len)
@@ -124,7 +126,6 @@ psu_type_t get_psu_type(int id, char* modelname, int modelname_len)
     char  model_name[I2C_PSU_MODEL_NAME_LEN + 1] = {0};
     char  fan_dir[I2C_PSU_FAN_DIR_LEN + 1] = {0};
 
-
     /* Check AC model name */
     node = (id == PSU1_ID) ? PSU1_AC_HWMON_NODE(psu_model_name) : PSU2_AC_HWMON_NODE(psu_model_name);
 
@@ -132,32 +133,137 @@ psu_type_t get_psu_type(int id, char* modelname, int modelname_len)
         return PSU_TYPE_UNKNOWN;
     }
 
-
-    if (strncmp(model_name, "YM-2651Y", strlen("YM-2651Y")) != 0) {
-        return PSU_TYPE_UNKNOWN;
-    }
-
     if(isspace(model_name[strlen(model_name)-1])) {
         model_name[strlen(model_name)-1] = 0;
     }
 
-    if (modelname) {
-        strncpy(modelname, model_name, modelname_len-1);
+    if (strncmp(model_name, "YM-2651Y", 8) == 0) {
+	    if (modelname) {
+			strncpy(modelname, model_name, 8);
+	    }
+
+	    node = (id == PSU1_ID) ? PSU1_AC_PMBUS_NODE(psu_fan_dir) : PSU2_AC_PMBUS_NODE(psu_fan_dir);
+	    if (deviceNodeReadString(node, fan_dir, sizeof(fan_dir), 0) != 0) {
+	        return PSU_TYPE_UNKNOWN;
+	    }
+
+	    if (strncmp(fan_dir, "F2B", strlen("F2B")) == 0) {
+	        return PSU_TYPE_AC_F2B_3YPOWER;
+	    }
+
+	    if (strncmp(fan_dir, "B2F", strlen("B2F")) == 0) {
+	        return PSU_TYPE_AC_B2F_3YPOWER;
+	    }
     }
 
-    node = (id == PSU1_ID) ? PSU1_AC_PMBUS_NODE(psu_fan_dir) : PSU2_AC_PMBUS_NODE(psu_fan_dir);
+    if (strncmp(model_name, "YM-2651V", 8) == 0) {
+	    if (modelname) {
+			strncpy(modelname, model_name, 8);
+	    }
 
-    if (deviceNodeReadString(node, fan_dir, sizeof(fan_dir), 0) != 0) {
-        return PSU_TYPE_UNKNOWN;
+	    node = (id == PSU1_ID) ? PSU1_AC_PMBUS_NODE(psu_fan_dir) : PSU2_AC_PMBUS_NODE(psu_fan_dir);
+	    if (deviceNodeReadString(node, fan_dir, sizeof(fan_dir), 0) != 0) {
+	        return PSU_TYPE_UNKNOWN;
+	    }
+
+	    if (strncmp(fan_dir, "F2B", strlen("F2B")) == 0) {
+	        return PSU_TYPE_DC_48V_F2B;
+	    }
+
+	    if (strncmp(fan_dir, "B2F", strlen("B2F")) == 0) {
+	        return PSU_TYPE_DC_48V_B2F;
+	    }
     }
 
-    if (strncmp(fan_dir, "F2B", strlen("F2B")) == 0) {
-        return PSU_TYPE_AC_F2B;
-    }
+	if (strncmp(model_name, "PSU-12V-750", 11) == 0) {
+	    if (modelname) {
+			strncpy(modelname, model_name, 11);
+	    }
 
-    if (strncmp(fan_dir, "B2F", strlen("B2F")) == 0) {
-        return PSU_TYPE_AC_B2F;
+	    node = (id == PSU1_ID) ? PSU1_AC_HWMON_NODE(psu_fan_dir) : PSU2_AC_HWMON_NODE(psu_fan_dir);
+	    if (deviceNodeReadString(node, fan_dir, sizeof(fan_dir), 0) != 0) {
+	        return PSU_TYPE_UNKNOWN;
+	    }
+
+	    if (strncmp(fan_dir, "F2B", 3) == 0) {
+	        return PSU_TYPE_DC_12V_F2B;
+	    }
+
+	    if (strncmp(fan_dir, "B2F", 3) == 0) {
+	        return PSU_TYPE_DC_12V_B2F;
+	    }
+
+	    if (strncmp(fan_dir, "NON", 3) == 0) {
+	        return PSU_TYPE_DC_12V_FANLESS;
+	    }
+	}
+
+    if (strncmp(model_name, "FSF019", 6) == 0) {
+	    if (modelname) {
+			strncpy(modelname, model_name, 11); /* Copy full model name */
+	    }
+
+        /* Read model */
+        char *string = NULL;
+        char *prefix = (id == PSU1_ID) ? PSU1_AC_PMBUS_PREFIX : PSU2_AC_PMBUS_PREFIX;
+        int len = onlp_file_read_str(&string, "%s""psu_fan_dir", prefix);
+        if (!string || len <= 0) {
+            return PSU_TYPE_UNKNOWN;
+        }
+
+        strncpy(fan_dir, string, len);
+        aim_free(string);
+
+	    if (strncmp(fan_dir, "F2B", strlen("F2B")) == 0) {
+	        return PSU_TYPE_AC_F2B_ACBEL;
+	    }
+
+	    if (strncmp(fan_dir, "B2F", strlen("B2F")) == 0) {
+	        return PSU_TYPE_AC_B2F_ACBEL;
+	    }
     }
 
     return PSU_TYPE_UNKNOWN;
 }
+
+#define PSU_SERIAL_NUMBER_LEN	18
+
+int psu_pmbus_serial_number_get(int id, char *serial, int serial_len)
+{
+	int   size = 0;
+	int   ret  = ONLP_STATUS_OK; 
+	char *prefix = NULL;
+
+	if (serial == NULL || serial_len < PSU_SERIAL_NUMBER_LEN) {
+		return ONLP_STATUS_E_PARAM;
+	}
+
+	prefix = (id == PSU1_ID) ? PSU1_AC_PMBUS_PREFIX : PSU2_AC_PMBUS_PREFIX;
+
+	ret = onlp_file_read((uint8_t*)serial, PSU_SERIAL_NUMBER_LEN, &size, "%s%s", prefix, "psu_mfr_serial");
+    if (ret != ONLP_STATUS_OK || size != PSU_SERIAL_NUMBER_LEN) {
+		return ONLP_STATUS_E_INTERNAL;
+
+    }
+
+	serial[PSU_SERIAL_NUMBER_LEN] = '\0';
+	return ONLP_STATUS_OK;
+}
+
+int psu_acbel_serial_number_get(int id, char *serial, int serial_len)
+{
+    char *serial_number = NULL;
+    char *prefix = (id == PSU1_ID) ? PSU1_AC_HWMON_PREFIX : PSU2_AC_HWMON_PREFIX;
+    
+    int len = onlp_file_read_str(&serial_number, "%s""psu_serial_number", prefix);
+    if (!serial || len <= 0) {
+        return ONLP_STATUS_E_INTERNAL;
+    }
+
+    strncpy(serial, serial_number, len);
+    aim_free(serial_number);
+
+	serial[len] = '\0';
+	return ONLP_STATUS_OK;
+}
+

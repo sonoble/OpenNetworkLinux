@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python2
 ############################################################
 #
 # Flat Image Tree Generator
@@ -43,7 +43,7 @@ class Image(object):
             raise ValueError("invalid image specifier: %s" % repr(data))
 
         if pkg is not None:
-            pm.require(pkg, force=False, build_missing=False)
+            pm.require(pkg, force=False, build_missing=True)
             self.data = pm.opr.get_file(pkg, fname)
         else:
             self.data = data
@@ -66,7 +66,7 @@ class Image(object):
         self.wl("""    description = "%s";""" % self.description)
         self.wl("""    type = "%s";""" % self.type)
         self.wl("""    data = /incbin/("%s");""" % self.data)
-        self.wl("""    arch = "%s";""" % ("arm" if ops.arch == 'armel' else ops.arch))
+        self.wl("""    arch = "%s";""" % ("arm" if ops.arch in [ 'armel', 'armhf' ] else ops.arch))
         self.wl("""    compression = "%s";""" % self.compression)
         if self.os:
             self.wl("""    os = %s;""" % self.os)
@@ -95,7 +95,7 @@ class KernelImage(Image):
         if arch == 'powerpc':
             self.load = "<0x0>"
             self.entry = "<0x0>"
-        elif arch == 'armel':
+        elif arch in [ 'armel', 'armhf' ]:
             self.load = "<0x61008000>"
             self.entry = "<0x61008000>"
         elif arch == 'arm64':
@@ -117,7 +117,7 @@ class InitrdImage(Image):
         if arch == 'powerpc':
             self.load = "<0x1000000>"
             self.entry ="<0x1000000>"
-        elif arch == 'armel':
+        elif arch in [ 'armel', 'armhf' ]:
             self.load = "<0x0000000>"
             self.entry ="<0x0000000>"
         elif arch == 'arm64':
@@ -134,8 +134,11 @@ class InitrdImage(Image):
 class DtbImage(Image):
     """DTB Image Entry"""
 
-    def __init__(self, fdata):
+    def __init__(self, fdata, arch):
         Image.__init__(self, "flat_dt", fdata, compression="none")
+	if arch == 'arm64':
+		self.load = "<0x90000000>"
+		self.entry ="<0x90000000>"
 
     def write(self, f):
         self.start_image(f)
@@ -213,10 +216,10 @@ class FlatImageTree(object):
         platform = package.replace(":%s" % ops.arch, "").replace("onl-platform-config-", "")
 
         vpkg = "onl-vendor-config-onl:all"
-        pm.require(vpkg, force=False, build_missing=False)
+        pm.require(vpkg, force=False, build_missing=True)
         y1 = pm.opr.get_file(vpkg, "platform-config-defaults-uboot.yml")
 
-        pm.require(package, force=False, build_missing=False)
+        pm.require(package, force=False, build_missing=True)
         y2 = pm.opr.get_file(package, platform + '.yml')
 
         self.add_yaml(platform, y2, defaults=y1)
@@ -240,7 +243,7 @@ class FlatImageTree(object):
 
         ddict = {}
         for d in self.dtbs:
-            di = DtbImage(d)
+            di = DtbImage(d, ops.arch)
             ddict[di.name] = di
 
         idict = {}
@@ -281,7 +284,7 @@ class FlatImageTree(object):
             f.write("""            description = "%s";\n""" % name)
             f.write("""            kernel = "%s";\n""" % (KernelImage(kernel, ops.arch).name))
             f.write("""            ramdisk = "%s";\n""" % (InitrdImage(initrd, ops.arch).name))
-            f.write("""            fdt = "%s";\n""" % (DtbImage(dtb).name))
+            f.write("""            fdt = "%s";\n""" % (DtbImage(dtb, ops.arch).name))
             f.write("""        };\n\n""")
         f.write("""    };\n""")
         f.write("""};\n""")
@@ -303,7 +306,7 @@ if __name__ == '__main__':
     ap.add_argument("--desc", nargs=1, help="Flat Image Tree description", default="ONL Flat Image Tree.")
     ap.add_argument("--itb", metavar='itb-file', help="Compile result to an image tree blob file.")
     ap.add_argument("--its", metavar='its-file', help="Write result to an image tree source file.")
-    ap.add_argument("--arch", choices=['powerpc', 'armel', 'arm64'], required=True)
+    ap.add_argument("--arch", choices=['powerpc', 'armel', 'armhf', 'arm64'], required=True)
     ops=ap.parse_args()
 
     fit = FlatImageTree(ops.desc)
@@ -338,7 +341,7 @@ if __name__ == '__main__':
         # Add support for the platforms listed in the initrd's platform manifest
         (package,f) = initrd.split(':')
         pkg = package + ':' + ops.arch
-        pm.require(pkg, force=False, build_missing=False)
+        pm.require(pkg, force=False, build_missing=True)
         mfile = pm.opr.get_file(pkg, "manifest.json")
         manifest = json.load(open(mfile))
         ops.add_platform = [[ "%s" % p for p in manifest['platforms'] ]]
