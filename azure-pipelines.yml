@@ -11,7 +11,7 @@ pool:
 
 steps:
 - script: |
-    docker/tools/onlbuilder
+    /bin/bash docker/tools/onlbuilder
     . setup.env
     apt-cacher-ng
     make amd64
