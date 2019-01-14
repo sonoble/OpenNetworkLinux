@@ -12,4 +12,4 @@ pool:
 steps:
 - script: |
     tools/autobuild/build_azure.sh
-    displayName: 'make azure amd64'
+  displayName: 'make azure amd64'
