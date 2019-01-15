@@ -11,5 +11,6 @@ pool:
 
 steps:
 - script: |
-    tools/autobuild/build_azure.sh
+    export VERSION=7
+    make docker
   displayName: 'make azure amd64'
