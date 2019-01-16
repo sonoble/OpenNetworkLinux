@@ -16,5 +16,5 @@ jobs:
 
   steps:
   - script: |
-      make docker
+      tools/autobuild/build.sh
     displayName: 'make docker'
