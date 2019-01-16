@@ -16,4 +16,5 @@ jobs:
 
   steps:
   - script: |
-    docker/tools/onlbuilder --non-interactive -c tools/autobuild/build_azure.sh
+      docker/tools/onlbuilder --non-interactive -c tools/autobuild/build_azure.sh
+    displayName: 'make azure amd64'
