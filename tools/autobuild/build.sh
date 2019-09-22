@@ -89,6 +89,7 @@ cd $ONL && git checkout $BUILD_BRANCH
 # Full build
 #
 cd $ONL
+apt-cacher-ng
 . setup.env
 
 if ! make all; then
