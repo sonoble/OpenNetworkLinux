@@ -81,8 +81,8 @@ echo "Now running under $DOCKER_IMAGE..."
 # The expectation is that we will already be on the required branch.
 # This is to normalize environments where the checkout might instead
 # be in a detached head (like jenkins)
-echo "Switching to branch $BUILD_BRANCH..."
-cd $ONL && git checkout $BUILD_BRANCH
+# echo "Switching to branch $BUILD_BRANCH..."
+# cd $ONL && git checkout $BUILD_BRANCH
 
 
 #
