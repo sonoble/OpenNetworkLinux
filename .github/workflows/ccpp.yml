@@ -9,6 +9,9 @@ jobs:
     
     steps:
     - uses: actions/checkout@v1
+    - name: install apt-cacher
+      run: 
+        apt-get install apt-cacher-ng
+        apt-cacher-ng
     - name: build
       run: tools/autobuild/build.sh
-
