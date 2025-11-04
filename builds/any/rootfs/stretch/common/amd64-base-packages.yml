@@ -8,6 +8,8 @@
 - smartmontools
 - grub2
 - onl-upgrade
+# Temporary workaround for apt.opennetlinux.org availability issues (#788, #764, #732, #461)
+# TODO: Re-enable once apt.opennetlinux.org is updated and hw-management package is available
 # - hw-management
 - onl-kernel-4.9-lts-x86-64-all-modules
 - onl-kernel-4.14-lts-x86-64-all-modules
