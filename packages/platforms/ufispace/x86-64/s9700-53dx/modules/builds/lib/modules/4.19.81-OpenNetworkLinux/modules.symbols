@@ -1,0 +1,6 @@
+# Aliases for symbols, used by symbol_request().
+alias symbol:read_eeprom x86_64_ufispace_s9700_53dx_onie_syseeprom
+alias symbol:prog_eeprom x86_64_ufispace_s9700_53dx_onie_syseeprom
+alias symbol:tlvinfo_delete_tlv x86_64_ufispace_s9700_53dx_onie_syseeprom
+alias symbol:tlvinfo_add_tlv x86_64_ufispace_s9700_53dx_onie_syseeprom
+alias symbol:tlvinfo_decode_tlv x86_64_ufispace_s9700_53dx_onie_syseeprom

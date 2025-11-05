@@ -1,0 +1,16 @@
+# Aliases extracted from modules themselves.
+alias i2c:mp2975 mp2975
+alias of:N*T*Cmps,mp2975C* mp2975
+alias of:N*T*Cmps,mp2975 mp2975
+alias i2c:platform_psu platform_psu
+alias i2c:switchboard i2c_switchcpld
+alias platform:cls-fpga fpga_system
+alias pci:v000010EEd00007021sv*sd*bc*sc*i* fpga_device
+alias i2c:platform_fan platform_fan
+alias i2c:max31730 max31730
+alias of:N*T*Cmaxim,max31730C* max31730
+alias of:N*T*Cmaxim,max31730 max31730
+alias i2c:tps536c7 tps536c7
+alias of:N*T*Cti,tps536c7C* tps536c7
+alias of:N*T*Cti,tps536c7 tps536c7
+alias platform:cls-xcvr fpga_xcvr

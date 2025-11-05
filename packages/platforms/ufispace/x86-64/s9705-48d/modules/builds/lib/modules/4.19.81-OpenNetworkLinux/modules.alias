@@ -1,0 +1,5 @@
+# Aliases extracted from modules themselves.
+alias i2c:s9705_48d_cpld4 x86_64_ufispace_s9705_48d_cpld
+alias i2c:s9705_48d_cpld3 x86_64_ufispace_s9705_48d_cpld
+alias i2c:s9705_48d_cpld2 x86_64_ufispace_s9705_48d_cpld
+alias i2c:s9705_48d_cpld1 x86_64_ufispace_s9705_48d_cpld

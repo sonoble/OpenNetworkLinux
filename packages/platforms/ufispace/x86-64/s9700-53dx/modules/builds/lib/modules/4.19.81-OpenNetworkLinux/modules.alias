@@ -1,0 +1,6 @@
+# Aliases extracted from modules themselves.
+alias i2c:s9700_53dx_cpld5 x86_64_ufispace_s9700_53dx_cpld
+alias i2c:s9700_53dx_cpld4 x86_64_ufispace_s9700_53dx_cpld
+alias i2c:s9700_53dx_cpld3 x86_64_ufispace_s9700_53dx_cpld
+alias i2c:s9700_53dx_cpld2 x86_64_ufispace_s9700_53dx_cpld
+alias i2c:s9700_53dx_cpld1 x86_64_ufispace_s9700_53dx_cpld

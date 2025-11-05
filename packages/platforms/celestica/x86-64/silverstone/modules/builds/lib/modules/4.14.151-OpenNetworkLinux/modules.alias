@@ -1,0 +1,15 @@
+# Aliases extracted from modules themselves.
+alias platform:cls-ocores-i2c i2c_ocores
+alias of:N*T*Caeroflexgaisler,i2cmstC* i2c_ocores
+alias of:N*T*Caeroflexgaisler,i2cmst i2c_ocores
+alias of:N*T*Copencores,i2c-ocoresC* i2c_ocores
+alias of:N*T*Copencores,i2c-ocores i2c_ocores
+alias i2c:24c04 optoe
+alias i2c:sff8436 optoe
+alias i2c:optoe3 optoe
+alias i2c:optoe2 optoe
+alias i2c:optoe1 optoe
+alias platform:cls-xcvr xcvr_cls
+alias pci:v000010EEd00007021sv*sd*bc*sc*i* cls_switchboard
+alias platform:cls-i2c i2c_cls
+alias i2c:24lc64t mc24lc64t

@@ -1,0 +1,12 @@
+onl/celestica/x86-64-cel-silverstone-v2/mp2975.ko:
+onl/celestica/x86-64-cel-silverstone-v2/watch_dog.ko:
+onl/celestica/x86-64-cel-silverstone-v2/platform_psu.ko:
+onl/celestica/x86-64-cel-silverstone-v2/i2c_switchcpld.ko:
+onl/celestica/x86-64-cel-silverstone-v2/fpga_system.ko:
+onl/celestica/x86-64-cel-silverstone-v2/fpga_i2c_ocores.ko:
+onl/celestica/x86-64-cel-silverstone-v2/fpga_device.ko:
+onl/celestica/x86-64-cel-silverstone-v2/platform_fan.ko:
+onl/celestica/x86-64-cel-silverstone-v2/lpc_basecpld.ko:
+onl/celestica/x86-64-cel-silverstone-v2/max31730.ko:
+onl/celestica/x86-64-cel-silverstone-v2/tps536c7.ko:
+onl/celestica/x86-64-cel-silverstone-v2/fpga_xcvr.ko:
