@@ -24,11 +24,13 @@
  *
  ***********************************************************/
 #include <sys/mman.h>
+#include <sys/ioctl.h>
 #include <errno.h>
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <linux/i2c-dev.h>
 #include <AIM/aim.h>
 #include <onlp/platformi/sfpi.h>
 #include "platform_lib.h"
