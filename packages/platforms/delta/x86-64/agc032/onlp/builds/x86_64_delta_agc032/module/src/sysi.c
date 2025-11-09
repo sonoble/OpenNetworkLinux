@@ -485,6 +485,7 @@ int onlp_sysi_platform_info_get(onlp_platform_info_t *pi)
     int rv = 0, cpld_idx = 0;
     uint8_t cpld_version[cpld_list_size];
     char buffer[256] = "";
+    char temp[64];
 
     void *busDrv = NULL;
     cpld_dev_driver_t *cpld = (cpld_dev_driver_t *)vendor_find_driver_by_name("CPLD");
@@ -508,7 +509,9 @@ int onlp_sysi_platform_info_get(onlp_platform_info_t *pi)
         {
             return ONLP_STATUS_E_INTERNAL;
         }
-        sprintf(buffer, "%s \n\t\t%s: 0x%02x ", buffer, cpld_version_list[cpld_idx].name, cpld_version[cpld_idx]);
+        /* Use temp buffer to avoid restrict violation and limit string length to prevent overflow */
+        snprintf(temp, sizeof(temp), " \n\t\t%.40s: 0x%02x ", cpld_version_list[cpld_idx].name, cpld_version[cpld_idx]);
+        strncat(buffer, temp, sizeof(buffer) - strlen(buffer) - 1);
     }
 
     pi->cpld_versions = aim_fstrdup(buffer);
