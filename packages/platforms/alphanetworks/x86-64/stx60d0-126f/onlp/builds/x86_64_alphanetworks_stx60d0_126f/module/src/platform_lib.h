@@ -233,10 +233,20 @@ enum onlp_led_id
 
 
 /*
-i2c APIs: access i2c device by ioctl 
-*/ 
+i2c APIs: access i2c device by ioctl
+*/
 #include <errno.h>
+#include <sys/ioctl.h>
 #include <linux/i2c-dev.h>
+/*
+ * linux/i2c-dev.h provided by i2c-tools contains the symbols defined in linux/i2c.h.
+ * This is not usual, but some distros like OpenSuSe does it. The i2c.h will be only
+ * included if a well-known symbol is not defined, it avoids to redefine symbols and
+ * breaks the build.(refer issue#96)
+ */
+#ifndef I2C_FUNC_I2C
+#include <linux/i2c.h>
+#endif
 
 int i2c_read(int i2cbus, int addr, int offset, int length, char* data);
 int i2c_sequential_read(int i2cbus, int addr, int offset, int length, char* data);
